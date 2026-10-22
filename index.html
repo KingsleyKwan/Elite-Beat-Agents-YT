@@ -3,8 +3,15 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#ff4d6d" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
-  <title>押忍！YouTube 応援団 — MVP</title>
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="応援団YT" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+  <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png" />
+  <title>押忍！YouTube 応援団</title>
   <link rel="stylesheet" href="css/app.css" />
 </head>
 <body>
@@ -14,9 +21,41 @@
     <div style="color:#94a3b8;font-size:0.9rem;">本遊戲僅支援橫向（landscape）遊玩</div>
   </div>
 
+  <!-- A2HS / fullscreen gate -->
+  <div id="a2hs-gate" class="screen gate" hidden>
+    <div class="card gate-card">
+      <h2>請加到主畫面以全螢幕遊玩</h2>
+      <p>建議用「加到主畫面／安裝應用」開啟，先可以真正全螢幕、標記浮喺 MV 上面。</p>
+      <ol class="gate-steps" id="a2hs-steps">
+        <li>用 Safari／Chrome 打開本頁</li>
+        <li>跟下面指示加入主畫面</li>
+        <li>由主畫面圖示重新打開再玩</li>
+      </ol>
+      <div class="gate-platform" id="a2hs-ios" hidden>
+        <p><strong>iPhone／iPad（Safari）</strong>：撳分享 <span class="kbd">□↑</span> →「加到主畫面」→ 加。</p>
+      </div>
+      <div class="gate-platform" id="a2hs-android" hidden>
+        <p><strong>Android（Chrome）</strong>：選單 ⋮ →「安裝應用程式」或「加到主螢幕」。</p>
+      </div>
+      <div class="gate-platform" id="a2hs-other">
+        <p>瀏覽器選單尋找「加到主畫面／Install app」。桌面可略過。</p>
+      </div>
+      <div class="actions">
+        <button class="btn" id="btn-a2hs-install" type="button" hidden>安裝應用</button>
+        <button class="btn secondary" id="btn-a2hs-continue" type="button">稍後繼續（瀏覽器）</button>
+      </div>
+      <p class="ready-tip">已由主畫面開啟會自動跳過呢個提示。</p>
+    </div>
+  </div>
+
+  <!-- Full-viewport YouTube underlay (always visible; no audio download) -->
+  <div id="yt-bg" aria-hidden="true">
+    <div id="yt-player">載入 YouTube…</div>
+  </div>
+
   <div id="app">
     <header class="topbar">
-      <h1>応援団 YT</h1>
+      <h1>応援団 YT</h1><span class="personal-tag" title="個人學習／唔對外分享">個人學習</span>
       <div class="grow">
         <input id="url-input" type="url" inputmode="url" placeholder="貼上 YouTube URL…" autocomplete="off" />
       </div>
@@ -27,41 +66,43 @@
     </header>
 
     <div class="beatbar" id="beatbar">
-      <label class="bb-item">BPM <input id="bpm-input" type="number" min="60" max="220" step="0.5" value="120" /></label>
-      <label class="bb-item">Offset(s) <input id="offset-input" type="number" min="-5" max="30" step="0.01" value="0" /></label>
-      <label class="bb-item">拍子細分
-        <select id="subdiv-select">
-          <option value="1" selected>1/1 每拍</option>
-          <option value="2">1/2 半拍</option>
-          <option value="4">1/4 十六分</option>
+      <label class="bb-item">難度
+        <select id="difficulty-select">
+          <option value="easy">易</option>
+          <option value="normal" selected>正常</option>
+          <option value="hard">難</option>
         </select>
       </label>
-      <label class="bb-item">密度
-        <select id="density-select">
-          <option value="sparse">疏</option>
-          <option value="normal" selected>中</option>
-          <option value="dense">密</option>
-        </select>
+      <span class="bb-auto" id="auto-badge" title="BPM／Offset／細分由系統自動">自動 BPM <strong id="auto-bpm-label">—</strong></span>
+      <label class="btn secondary bb-upload" id="btn-audio-label" title="上傳同一首歌嘅 CC／本地音訊以自動對拍（瀏覽器內，唔經 YT 下載）">
+        上傳音訊自動對拍
+        <input id="audio-file" type="file" accept="audio/*,.mp3,.wav,.ogg,.m4a,.flac" hidden />
       </label>
-      <label class="bb-item" title="裝置觸控／顯示延遲（同拍子 Offset 分開）">延遲
+      <button class="btn secondary" id="btn-local-helper" type="button" title="需本機 tools/server（yt-dlp）；唔係公開 API">本機自動對拍</button>
+      <label class="bb-item" title="裝置觸控／顯示延遲">延遲
         <input id="latency-input" type="range" min="0" max="200" step="5" value="40" />
         <span id="latency-val">40</span>ms
       </label>
-      <button class="btn ghost" id="btn-calibrate" type="button" title="跟住閃光撳四次估延遲">校准</button>
-      <button class="btn secondary" id="btn-regen" type="button" title="用而家 BPM／Offset 重產譜">Regen</button>
-      <label class="btn ghost bb-upload" id="btn-audio-label">
-        上傳音訊偵測
-        <input id="audio-file" type="file" accept="audio/*,.mp3,.wav,.ogg,.m4a,.flac" hidden />
-      </label>
-      <span class="bb-hint" id="beat-hint">純 YT：用手填 BPM（唔下載音訊）。可選上傳 CC／本地音訊做 Web Audio 偵測。</span>
+      <button class="btn ghost" id="btn-calibrate" type="button">校准</button>
+      <button class="btn ghost" id="btn-advanced" type="button">進階</button>
+      <button class="btn secondary" id="btn-regen" type="button">Regen</button>
+      <span class="bb-hint" id="beat-hint">貼 URL → Load → Play。想準拍可上傳同一首歌音訊（唔經 YT 下載）。</span>
+
+      <div class="advanced-panel" id="advanced-panel" hidden>
+        <label class="bb-item">BPM <input id="bpm-input" type="number" min="60" max="220" step="0.5" value="120" /></label>
+        <label class="bb-item">Offset(s) <input id="offset-input" type="number" min="-5" max="30" step="0.01" value="0" /></label>
+        <label class="bb-item">拍子細分
+          <select id="subdiv-select">
+            <option value="1">1/1</option>
+            <option value="2" selected>1/2</option>
+            <option value="4">1/4</option>
+          </select>
+        </label>
+        <span class="bb-hint">進階手動覆寫；改完請 Regen。正常流程唔使填。</span>
+      </div>
     </div>
 
     <div class="stage">
-      <aside class="yt-pane">
-        <div id="yt-player">載入 YouTube…</div>
-        <div class="yt-label">時鐘：getCurrentTime（不下載音訊）· 已隱藏進度條以免拖動不同步</div>
-      </aside>
-
       <section class="play-pane">
         <canvas id="playfield"></canvas>
         <div class="hud">
@@ -80,10 +121,14 @@
         <div class="screen" id="ready-screen">
           <div class="card">
             <h2 id="ready-title">準備應援</h2>
-            <p id="ready-meta">載入譜面後按 Play</p>
-            <p class="ready-tip" id="ready-tip">提示：填 BPM／Offset 後按 Regen 可對齊節拍</p>
+            <p id="ready-meta">貼 YouTube → Load → Play</p>
+            <p class="ready-tip" id="ready-tip">系統會自動估 BPM（標示「自動」）。更準：上傳音訊，或本機對拍伺服器（個人學習；靜態 Pages 唔能夠下載 YT）。</p>
             <div class="actions">
               <button class="btn" id="btn-ready-play" type="button">Play</button>
+              <label class="btn secondary bb-upload">
+                上傳音訊對拍
+                <input id="audio-file-ready" type="file" accept="audio/*,.mp3,.wav,.ogg,.m4a,.flac" hidden />
+              </label>
             </div>
           </div>
         </div>

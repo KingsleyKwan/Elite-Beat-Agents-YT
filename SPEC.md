@@ -203,3 +203,16 @@ https://<host>/index.html#v=<videoId>&c=<base64url(JSON chart without bulky fiel
 - Sample 用短片時譜面必須 ≤ 片長（載入時會再 clamp）。
 - `file://` 下 YT API 可能受限 → 請用本機 HTTP server。
 - 部分影片禁止嵌入 → 需換 `videoId`。
+
+## 10. UX（自動 BPM／全螢幕／A2HS／個人學習）
+
+- **個人學習／唔對外分享** 標籤；注意 github.io 往往係公開站。
+- **正常流程**：貼 URL → Load → Play。BPM／Offset／細分唔使手打。
+  - 優先：上傳同一首歌 CC／本地音訊 → Web Audio 偵測。
+  - 或：本機 `tools/server`（127.0.0.1 + yt-dlp）→ 回傳 BPM／Offset（**唔**部署到 Pages）。
+  - 純靜態／無上傳：oEmbed 標題／時長啟發式 → 標示「自動」；進階面板可手改。
+- **難度**：易＝sparse÷1；正常＝normal÷2；難＝dense÷4。
+- **畫面**：YT iframe 全螢幕 cover 墊底；標記／HUD 透明疊加。
+- **A2HS**：manifest + SW；非 standalone 顯示「加到主畫面」引導。
+- **阻斷（誠實）**：純 github.io **無法**喺瀏覽器合法／技術上可靠地下載 YT 音訊（CORS／ToS）；要 yt-dlp 必須本機 companion。
+
