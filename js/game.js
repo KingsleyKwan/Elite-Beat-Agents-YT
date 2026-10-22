@@ -3,7 +3,7 @@
  */
 (function (global) {
   const HIT_WINDOWS = { perfect: 0.05, great: 0.1, good: 0.15 };
-  const HIT_R = 36; // px target radius
+  const HIT_R = 46; // px target radius (touch-friendly)
 
   function createGame(canvas, hooks) {
     const ctx = canvas.getContext("2d");
@@ -26,6 +26,9 @@
     let offset = 0;
     let endTime = 0;
     let dpr = 1;
+    let deviceLatencySec = 0; // input/display lag compensation (separate from beat offset)
+    let videoDuration = 0; // real YT duration when known
+    let ending = false;
 
     function resize() {
       const parent = canvas.parentElement;
@@ -74,11 +77,20 @@
         lastAngle: null,
       }));
       breakStates = (c.breaks || []).map((b) => ({ def: b, shown: false }));
+      ending = false;
       const lastT = c.markers.reduce((mx, m) => {
         const end = m.type === "hit" ? m.t : m.t + (m.duration || 0);
         return Math.max(mx, end);
       }, 0);
-      endTime = Math.max(lastT + 1.5, (c.durationHint || 40) - 0.5);
+      const hint = c.durationHint || 0;
+      const durCap = videoDuration > 0 ? videoDuration : hint > 0 ? hint : 0;
+      // Chart should end with last marker, but never past real video (+ small grace)
+      if (durCap > 0) {
+        endTime = Math.min(lastT + 0.35, durCap - 0.05);
+        if (endTime < lastT && lastT <= durCap) endTime = Math.min(lastT + 0.2, durCap);
+      } else {
+        endTime = lastT + 0.5;
+      }
       if (hooks.onHud) hooks.onHud(snapshot());
     }
 
@@ -97,7 +109,7 @@
       if (hooks.onHud) hooks.onHud(snapshot());
     }
 
-    function judgeHit(grade) {
+    function judgeHit(grade, timingDt) {
       counts[grade] = (counts[grade] || 0) + 1;
       score += grade;
       if (grade === 0) {
@@ -110,7 +122,13 @@
         else if (grade === 100) applyLifeDelta(1);
         else applyLifeDelta(0);
       }
-      if (hooks.onJudgment) hooks.onJudgment(grade, combo);
+      let earlyLate = null;
+      if (timingDt != null && grade !== 0) {
+        earlyLate = timingDt < -0.012 ? "EARLY" : timingDt > 0.012 ? "LATE" : "OK";
+      } else if (grade === 0) {
+        earlyLate = "MISS";
+      }
+      if (hooks.onJudgment) hooks.onJudgment(grade, combo, { earlyLate: earlyLate, dt: timingDt });
       if (hooks.onHud) hooks.onHud(snapshot());
     }
 
@@ -125,7 +143,7 @@
         maxCombo = Math.max(maxCombo, combo);
         applyLifeDelta(grade >= 50 ? 3 : 0);
       }
-      if (hooks.onJudgment) hooks.onJudgment(grade, combo);
+      if (hooks.onJudgment) hooks.onJudgment(grade, combo, { earlyLate: grade === 0 ? "MISS" : null });
       if (hooks.onHud) hooks.onHud(snapshot());
     }
 
@@ -145,7 +163,8 @@
     }
 
     function gameTime(ytTime) {
-      return ytTime + offset;
+      // beat offset shifts chart; device latency pulls judgement earlier (phone lag)
+      return ytTime + offset - deviceLatencySec;
     }
 
     function tryHitAt(cssX, cssY, t) {
@@ -158,15 +177,17 @@
         if (dt < -HIT_WINDOWS.good || dt > HIT_WINDOWS.good) continue;
         const p = toPx(st.def.x, st.def.y);
         const dist = Math.hypot(cssX - p.x, cssY - p.y);
-        if (dist <= HIT_R * 1.35 && Math.abs(dt) < bestScore) {
+        if (dist <= HIT_R * 1.55 && Math.abs(dt) < bestScore) {
           bestScore = Math.abs(dt);
           best = st;
         }
       }
       if (!best) return false;
       best.judged = true;
-      best.result = gradeFromAbsDt(t - best.def.t);
-      judgeHit(best.result);
+      const timingDt = t - best.def.t;
+      best.result = gradeFromAbsDt(timingDt);
+      best.timingDt = timingDt;
+      judgeHit(best.result, timingDt);
       return true;
     }
 
@@ -290,23 +311,63 @@
     }
 
     function allJudged() {
-      return markerStates.every((s) => s.judged);
+      return markerStates.length === 0 || markerStates.every((s) => s.judged);
     }
 
-    function tick(ytTime) {
-      if (!running || !chart || failed) return;
-      const t = gameTime(ytTime);
+    function finishClear() {
+      if (failed || cleared) return;
+      ending = true;
+      cleared = true;
+      running = false;
+      if (hooks.onClear) hooks.onClear(snapshot());
+    }
+
+    /** Miss any leftover markers then Clear/Fail — never softlock past video end. */
+    function forceResolveEnd(reason) {
+      if (!running || failed || cleared || ending) return;
+      ending = true; // re-entrancy guard (YT ended + RAF may both fire)
+      const t = gameTime(hooks.getTime ? hooks.getTime() : 0);
+      for (const st of markerStates) {
+        if (st.judged) continue;
+        st.judged = true;
+        st.result = 0;
+        if (st.def.type === "hit") judgeHit(0, null);
+        else judgeHoldLike(0);
+        if (failed) return; // life emptied mid-resolve
+      }
+      activePhrase = null;
+      activeSpin = null;
+      if (!failed) finishClear();
+    }
+
+    function tick(ytTime, meta) {
+      if (!running || !chart || failed || cleared) return;
+      meta = meta || {};
+      if (meta.videoDuration > 0) videoDuration = meta.videoDuration;
+
+      const rawYt = ytTime;
+      const t = gameTime(rawYt);
       missExpired(t);
       updatePhrase(t);
       updateSpin(t);
       checkBreaks(t);
       draw(t);
-      if (!failed && (allJudged() || t >= endTime)) {
-        // small grace then clear
-        if (allJudged() || t >= endTime + 0.3) {
-          cleared = true;
-          running = false;
-          if (hooks.onClear) hooks.onClear(snapshot());
+
+      const dur = videoDuration > 0 ? videoDuration : meta.videoDuration || 0;
+      const endedFlag = !!meta.ended;
+      const pastVideo =
+        dur > 0 && (rawYt >= dur - 0.05 || (hooks.getState && hooks.getState() === 0));
+      // Also: game clock past chart endTime
+      const pastChart = t >= endTime + 0.15;
+
+      if (endedFlag || pastVideo) {
+        forceResolveEnd(endedFlag ? "yt-ended" : "past-video");
+        return;
+      }
+
+      if (!failed && (allJudged() || pastChart)) {
+        if (allJudged() || t >= endTime + 0.35) {
+          finishClear();
         }
       }
     }
@@ -329,12 +390,36 @@
         ctx.stroke();
       }
 
+      drawHitGuides(t);
+
       for (const st of markerStates) {
         const m = st.def;
         if (m.type === "hit") drawHit(st, t);
         else if (m.type === "phrase") drawPhrase(st, t);
         else if (m.type === "spin") drawSpin(st, t);
       }
+    }
+
+    function drawHitGuides(t) {
+      const upcoming = markerStates
+        .filter((st) => !st.judged && st.def.type === "hit" && st.def.t >= t - 0.05 && st.def.t <= t + approachSec * 1.6)
+        .sort((a, b) => a.def.t - b.def.t || (a.def.n || 0) - (b.def.n || 0));
+      if (upcoming.length < 2) return;
+      ctx.save();
+      ctx.lineWidth = 3;
+      ctx.setLineDash([8, 8]);
+      for (let i = 0; i < upcoming.length - 1; i++) {
+        const a = toPx(upcoming[i].def.x, upcoming[i].def.y);
+        const b = toPx(upcoming[i + 1].def.x, upcoming[i + 1].def.y);
+        const fade = 1 - i * 0.18;
+        ctx.strokeStyle = "rgba(255, 209, 102, " + Math.max(0.25, 0.55 * fade) + ")";
+        ctx.beginPath();
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(b.x, b.y);
+        ctx.stroke();
+      }
+      ctx.setLineDash([]);
+      ctx.restore();
     }
 
     function drawHit(st, t) {
@@ -507,7 +592,7 @@
       if (activePhrase) {
         const pathPx = activePhrase.def.path.map(([nx, ny]) => toPx(nx, ny));
         const { dist, progress } = distToPath(pathPx, x, y);
-        if (dist < 48) {
+        if (dist < 64) {
           activePhrase.progress = Math.max(activePhrase.progress, progress);
         }
       }
@@ -522,7 +607,7 @@
       if (activePhrase) {
         const pathPx = activePhrase.def.path.map(([nx, ny]) => toPx(nx, ny));
         const { dist, progress } = distToPath(pathPx, x, y);
-        if (dist < 56 && progress >= activePhrase.progress - 0.05) {
+        if (dist < 72 && progress >= activePhrase.progress - 0.05) {
           activePhrase.progress = Math.max(activePhrase.progress, progress);
         }
       }
@@ -530,7 +615,7 @@
         const p = toPx(activeSpin.def.x, activeSpin.def.y);
         const ang = Math.atan2(y - p.y, x - p.x);
         const dist = Math.hypot(x - p.x, y - p.y);
-        if (dist > 18 && dist < 110 && activeSpin.lastAngle != null) {
+        if (dist > 14 && dist < 130 && activeSpin.lastAngle != null) {
           let d = ang - activeSpin.lastAngle;
           while (d > Math.PI) d -= Math.PI * 2;
           while (d < -Math.PI) d += Math.PI * 2;
@@ -549,6 +634,7 @@
       running = true;
       failed = false;
       cleared = false;
+      ending = false;
     }
     function stop() {
       running = false;
@@ -562,6 +648,23 @@
     canvas.addEventListener("pointerup", onPointerUp);
     canvas.addEventListener("pointercancel", onPointerUp);
 
+    function setDeviceLatencyMs(ms) {
+      deviceLatencySec = (Number(ms) || 0) / 1000;
+    }
+    function getDeviceLatencyMs() {
+      return Math.round(deviceLatencySec * 1000);
+    }
+    function setVideoDuration(sec) {
+      videoDuration = Number(sec) || 0;
+      if (chart && videoDuration > 0) {
+        const lastT = chart.markers.reduce((mx, m) => {
+          const end = m.type === "hit" ? m.t : m.t + (m.duration || 0);
+          return Math.max(mx, end);
+        }, 0);
+        endTime = Math.min(Math.max(lastT, lastT + 0.2), videoDuration - 0.05);
+      }
+    }
+
     return {
       resize,
       resetRuntime,
@@ -571,8 +674,15 @@
       isRunning,
       snapshot,
       draw,
+      forceResolveEnd,
+      setDeviceLatencyMs,
+      getDeviceLatencyMs,
+      setVideoDuration,
       get chart() {
         return chart;
+      },
+      get endTime() {
+        return endTime;
       },
     };
   }

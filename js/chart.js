@@ -48,7 +48,9 @@
     opts = opts || {};
     const bpm = Math.max(60, Math.min(220, Number(opts.bpm) || 120));
     const offset = Number(opts.offset) || 0;
-    const duration = Math.max(12, Number(opts.durationHint) || 45);
+    const rawDur = Number(opts.durationHint);
+    const duration = Math.max(5, (rawDur > 0 ? rawDur : 45));
+    const margin = 0.45;
     const approachSec = Number(opts.approachSec) || 1.2;
     const subdiv = [1, 2, 4].includes(Number(opts.subdivision)) ? Number(opts.subdivision) : 1;
     const barsPerSpecial = Math.max(4, Number(opts.barsPerPhrase) || 8);
@@ -149,7 +151,8 @@
     t0 = grid0 + beatsFromGrid * beat;
     if (t0 < 1.2) t0 += beat;
 
-    const tEnd = Math.max(t0 + bar * 2, duration - Math.min(2.5, bar));
+    let tEnd = Math.min(duration - margin, Math.max(t0 + bar * 2, duration - Math.min(2.5, bar)));
+    if (tEnd <= t0 + beat) tEnd = Math.max(t0 + beat, duration - margin);
 
     // Place phrase + spin on bar boundaries every barsPerSpecial bars
     let specialIdx = 0;
@@ -320,6 +323,48 @@
     };
   }
 
+
+  function markerEndTime(m) {
+    if (!m) return 0;
+    if (m.type === "hit") return Number(m.t) || 0;
+    return (Number(m.t) || 0) + (Number(m.duration) || 0);
+  }
+
+  /**
+   * Drop / shorten markers that would play after the real video ends.
+   * Prevents Sample softlock when chart outlasts YT duration.
+   */
+  function clampChartToDuration(chart, durationSec, marginSec) {
+    if (!chart || !(durationSec > 0)) return chart;
+    const margin = marginSec != null ? marginSec : 0.4;
+    const limit = Math.max(1.2, durationSec - margin);
+    const markers = [];
+    for (const m of chart.markers || []) {
+      const t0 = Number(m.t) || 0;
+      if (m.type === "hit") {
+        if (t0 <= limit) markers.push(Object.assign({}, m));
+        continue;
+      }
+      if (t0 >= limit) continue;
+      const copy = Object.assign({}, m);
+      const end = t0 + (Number(m.duration) || 0);
+      if (end > limit) copy.duration = +Math.max(0.35, limit - t0).toFixed(3);
+      if (copy.duration >= 0.35) markers.push(copy);
+    }
+    let hn = 1;
+    for (const m of markers) {
+      if (m.type === "hit") m.n = hn++;
+    }
+    const breaks = (chart.breaks || [])
+      .filter((b) => (Number(b.t) || 0) < limit)
+      .map((b) => Object.assign({}, b));
+    return Object.assign({}, chart, {
+      markers,
+      breaks,
+      durationHint: +durationSec.toFixed(3),
+    });
+  }
+
   function normalizeChart(raw, fallbackVideoId) {
     if (!raw || typeof raw !== "object") return null;
     const videoId = raw.videoId || fallbackVideoId || "";
@@ -405,6 +450,8 @@
     SCHEMA_VERSION,
     parseVideoId,
     autoGenerateChart,
+    clampChartToDuration,
+    markerEndTime,
     normalizeChart,
     buildShareUrl,
     parseShareFromLocation,

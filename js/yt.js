@@ -61,7 +61,7 @@
           playsinline: 1,
           rel: 0,
           modestbranding: 1,
-          controls: 1,
+          controls: 0, // hide scrubber — dragging desyncs chart clock
           fs: 0,
           disablekb: 1,
           origin: location.origin === "null" ? undefined : location.origin,

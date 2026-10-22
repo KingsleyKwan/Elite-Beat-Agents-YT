@@ -1,5 +1,5 @@
 /**
- * App wiring: BPM UI, smarter auto-chart, optional Web Audio detect, YT clock.
+ * App wiring: BPM UI, clamp-to-duration, latency, playing HUD, softlock-safe end.
  */
 (function () {
   const $ = (sel) => document.querySelector(sel);
@@ -8,6 +8,8 @@
   const offsetInput = $("#offset-input");
   const subdivSelect = $("#subdiv-select");
   const densitySelect = $("#density-select");
+  const latencyInput = $("#latency-input");
+  const latencyVal = $("#latency-val");
   const beatHint = $("#beat-hint");
   const btnLoad = $("#btn-load");
   const btnSample = $("#btn-sample");
@@ -16,6 +18,7 @@
   const btnRegen = $("#btn-regen");
   const btnRetry = $("#btn-retry");
   const btnHome = $("#btn-home");
+  const btnCalibrate = $("#btn-calibrate");
   const audioFile = $("#audio-file");
   const lifeFill = $("#life-fill");
   const scoreEl = $("#score-val");
@@ -25,19 +28,41 @@
   const breakText = $("#break-text");
   const resultScreen = $("#result-screen");
   const readyScreen = $("#ready-screen");
+  const calibrateScreen = $("#calibrate-screen");
   const resultTitle = $("#result-title");
   const toast = $("#toast");
   const canvas = $("#playfield");
+  const appEl = $("#app");
 
   let chart = null;
   let raf = 0;
   let breakTimer = 0;
   let lastVideoId = null;
   let lastDurationHint = 45;
-  let audioDetectMeta = null; // {bpm,offset,duration,source}
+  let audioDetectMeta = null;
+  let ytEnded = false;
+
+  const LATENCY_KEY = "ouendan-yt-latency-ms";
+
+  function loadStoredLatency() {
+    const v = parseInt(localStorage.getItem(LATENCY_KEY) || "40", 10);
+    const ms = Number.isFinite(v) ? Math.max(0, Math.min(200, v)) : 40;
+    latencyInput.value = String(ms);
+    latencyVal.textContent = String(ms);
+    return ms;
+  }
+
+  function applyLatency(ms) {
+    ms = Math.max(0, Math.min(200, Number(ms) || 0));
+    latencyInput.value = String(ms);
+    latencyVal.textContent = String(ms);
+    localStorage.setItem(LATENCY_KEY, String(ms));
+    game.setDeviceLatencyMs(ms);
+  }
 
   const game = GameEngine.createGame(canvas, {
     getTime: () => YTBridge.getTime(),
+    getState: () => YTBridge.getState(),
     onHud: (s) => {
       lifeFill.style.width = s.life + "%";
       lifeFill.classList.remove("warn", "danger");
@@ -46,10 +71,21 @@
       scoreEl.textContent = String(s.score);
       comboEl.textContent = String(s.combo);
     },
-    onJudgment: (grade) => {
+    onJudgment: (grade, combo, info) => {
       const labels = { 300: "PERFECT", 100: "GREAT", 50: "GOOD", 0: "MISS" };
       const colors = { 300: "#06d6a0", 100: "#4cc9f0", 50: "#ffd166", 0: "#ef476f" };
-      judgeEl.textContent = labels[grade] || String(grade);
+      const el = (info && info.earlyLate) || "";
+      const elColor =
+        el === "EARLY" ? "#4cc9f0" : el === "LATE" ? "#ff8fab" : el === "OK" ? "#94a3b8" : "";
+      judgeEl.innerHTML =
+        '<div>' +
+        (labels[grade] || String(grade)) +
+        "</div>" +
+        (el && el !== "MISS" && el !== "OK"
+          ? '<div class="el-tag" style="color:' + elColor + '">' + el + "</div>"
+          : el === "OK"
+            ? ""
+            : "");
       judgeEl.style.color = colors[grade] || "#fff";
       judgeEl.classList.remove("show");
       void judgeEl.offsetWidth;
@@ -66,14 +102,28 @@
     onFail: (s) => {
       cancelAnimationFrame(raf);
       YTBridge.pause();
+      setPlayingUi(false);
       showResult(false, s);
     },
     onClear: (s) => {
       cancelAnimationFrame(raf);
       YTBridge.pause();
+      setPlayingUi(false);
       showResult(true, s);
     },
   });
+
+  applyLatency(loadStoredLatency());
+
+  function setPlayingUi(on) {
+    appEl.classList.toggle("playing", !!on);
+    if (on) {
+      // recover canvas height after beatbar collapse
+      requestAnimationFrame(() => game.resize());
+    } else {
+      requestAnimationFrame(() => game.resize());
+    }
+  }
 
   function showToast(msg) {
     toast.textContent = msg;
@@ -111,6 +161,7 @@
   function showResult(cleared, s) {
     resultScreen.classList.add("active");
     readyScreen.classList.remove("active");
+    calibrateScreen.classList.remove("active");
     resultTitle.textContent = cleared ? "CLEAR！" : "FAILED…";
     resultTitle.style.color = cleared ? "#06d6a0" : "#ef476f";
     $("#stat-300").textContent = s.counts[300];
@@ -124,11 +175,16 @@
   function hideOverlays() {
     resultScreen.classList.remove("active");
     readyScreen.classList.remove("active");
+    calibrateScreen.classList.remove("active");
   }
 
   function loop() {
     if (!game.isRunning()) return;
-    game.tick(YTBridge.getTime());
+    const dur = YTBridge.getDuration() || lastDurationHint || 0;
+    game.tick(YTBridge.getTime(), {
+      videoDuration: dur,
+      ended: ytEnded || YTBridge.getState() === 0,
+    });
     raf = requestAnimationFrame(loop);
   }
 
@@ -152,6 +208,7 @@
   }
 
   async function ensurePlayer(videoId) {
+    ytEnded = false;
     await YTBridge.create("yt-player", videoId, {
       onReady: () => {
         btnPlay.disabled = false;
@@ -159,8 +216,24 @@
       onError: () => {
         showToast("此影片可能無法嵌入，請換另一個 videoId");
       },
-      onStateChange: () => {},
+      onStateChange: (e) => {
+        // 0 = ENDED
+        if (e.data === 0) {
+          ytEnded = true;
+          if (game.isRunning()) {
+            game.forceResolveEnd("yt-ended");
+          }
+        }
+      },
     });
+  }
+
+  function applyDurationClamp(c, dur) {
+    if (!(dur > 0)) return c;
+    const clamped = ChartUtil.clampChartToDuration(c, dur, 0.4);
+    game.setVideoDuration(dur);
+    lastDurationHint = dur;
+    return clamped;
   }
 
   async function loadChart(c, opts) {
@@ -186,6 +259,30 @@
     if (chart.durationHint) lastDurationHint = chart.durationHint;
     syncUiFromChart(chart);
     urlInput.value = "https://www.youtube.com/watch?v=" + chart.videoId;
+    btnPlay.disabled = true;
+    await ensurePlayer(chart.videoId);
+    const dur = await waitDuration(4500);
+    if (dur > 0) {
+      const before = chart.markers.length;
+      chart = applyDurationClamp(chart, dur);
+      beatHint.textContent =
+        "YT 時長 ≈ " +
+        dur.toFixed(1) +
+        "s　| 標記 " +
+        chart.markers.length +
+        (chart.markers.length < before ? "（已夾掉超時標記）" : "") +
+        "　| 改 BPM 後 Regen　| 延遲 " +
+        game.getDeviceLatencyMs() +
+        "ms";
+      if (chart.markers.length < before) {
+        showToast("已按片長夾短譜面（" + before + "→" + chart.markers.length + "）");
+      }
+    }
+    if (!chart.markers.length) {
+      showToast("片長過短或譜面全被夾掉 — 請換片／Regen");
+      btnPlay.disabled = true;
+      return;
+    }
     game.resetRuntime(chart);
     game.resize();
     game.draw(0);
@@ -202,17 +299,10 @@
       chart.offset +
       "　÷" +
       (chart.subdivision || 1) +
+      "　延遲 " +
+      game.getDeviceLatencyMs() +
+      "ms" +
       src;
-    btnPlay.disabled = true;
-    await ensurePlayer(chart.videoId);
-    const dur = await waitDuration(3500);
-    if (dur > 0) {
-      lastDurationHint = dur;
-      beatHint.textContent =
-        "YT 時長 ≈ " +
-        dur.toFixed(1) +
-        "s　| 時鐘：getCurrentTime（不下載音訊）　| 改 BPM 後按 Regen";
-    }
     btnPlay.disabled = false;
     if (opts && opts.autoplay) startPlay();
   }
@@ -234,8 +324,8 @@
       chartSource: audioDetectMeta ? "procedural+audioBPM" : "procedural",
       title: "Auto — " + id,
     });
-    // If user previously ran audio detect, keep those bpm/offset already in inputs
-    const c = ChartUtil.autoGenerateChart(id, opts);
+    let c = ChartUtil.autoGenerateChart(id, opts);
+    if (dur > 0) c = ChartUtil.clampChartToDuration(c, dur, 0.4);
     await loadChart(c);
     showToast(
       "自動譜完成：BPM " +
@@ -243,7 +333,7 @@
         "　時長 " +
         lastDurationHint.toFixed(1) +
         "s　標記 " +
-        c.markers.length
+        (chart && chart.markers.length)
     );
   }
 
@@ -253,7 +343,6 @@
       showToast("請先 Load YouTube URL");
       return;
     }
-    // Refresh duration if player ready
     const dur = YTBridge.getDuration();
     if (dur > 0) lastDurationHint = dur;
     const opts = readGenOpts({
@@ -261,7 +350,8 @@
       chartSource: audioDetectMeta ? "procedural+audioBPM" : "procedural",
       title: "Auto — " + id + " @ " + (parseFloat(bpmInput.value) || 120) + "BPM",
     });
-    const c = ChartUtil.autoGenerateChart(id, opts);
+    let c = ChartUtil.autoGenerateChart(id, opts);
+    if (lastDurationHint > 0) c = ChartUtil.clampChartToDuration(c, lastDurationHint, 0.4);
     await loadChart(c);
     showToast("已 Regen：BPM " + opts.bpm + " Offset " + opts.offset + " ÷" + opts.subdivision);
   }
@@ -271,11 +361,13 @@
       const res = await fetch("sample-chart.json");
       const json = await res.json();
       await loadChart(json);
-      showToast("已載入手譜 sample");
+      showToast("已載入 Sample（譜面已對齊短片）");
     } catch (e) {
       showToast("無法載入 sample（請用 HTTP server）");
       const id = "jNQXAC9IVRw";
-      await loadChart(ChartUtil.autoGenerateChart(id, readGenOpts({ durationHint: 40 })));
+      await loadChart(
+        ChartUtil.autoGenerateChart(id, readGenOpts({ durationHint: 18.5, density: "sparse" }))
+      );
     }
   }
 
@@ -300,14 +392,16 @@
         "s — 請確認 YT 係同一首歌，再 Regen／Load";
       const id = ChartUtil.parseVideoId(urlInput.value) || lastVideoId;
       if (id) {
-        const c = ChartUtil.autoGenerateChart(
+        let c = ChartUtil.autoGenerateChart(
           id,
           readGenOpts({
-            durationHint: Math.min(meta.duration, lastDurationHint || meta.duration),
+            durationHint: meta.duration,
             chartSource: "webaudio+procedural",
             title: "AudioBPM — " + file.name,
           })
         );
+        const ytDur = YTBridge.getDuration();
+        if (ytDur > 0) c = ChartUtil.clampChartToDuration(c, ytDur, 0.4);
         await loadChart(c);
         showToast("已用上傳音訊 BPM 產譜；播放仍用 YT 嵌入");
       } else {
@@ -324,8 +418,16 @@
       showToast("需要 YouTube videoId 先可以 Play");
       return;
     }
+    ytEnded = false;
     hideOverlays();
+    setPlayingUi(true);
     game.resetRuntime(chart);
+    const dur = YTBridge.getDuration();
+    if (dur > 0) {
+      chart = applyDurationClamp(chart, dur);
+      game.resetRuntime(chart);
+      game.setVideoDuration(dur);
+    }
     game.resize();
     YTBridge.seek(0);
     YTBridge.play();
@@ -352,6 +454,69 @@
     }
   }
 
+  // --- latency calibrate (4 visual flashes) ---
+  let calBusy = false;
+  function openCalibrate() {
+    calibrateScreen.classList.add("active");
+    readyScreen.classList.remove("active");
+    $("#calibrate-msg").textContent = "跟住圓圈閃光撳畫面（共 4 次）";
+    $("#calibrate-flash").classList.remove("pulse");
+  }
+
+  function runCalibrate() {
+    if (calBusy) return;
+    calBusy = true;
+    const flash = $("#calibrate-flash");
+    const msg = $("#calibrate-msg");
+    const deltas = [];
+    let i = 0;
+    const interval = 700;
+    let expected = 0;
+    let listening = false;
+
+    function onTap() {
+      if (!listening) return;
+      const dt = performance.now() - expected;
+      deltas.push(dt);
+      listening = false;
+      flash.classList.remove("pulse");
+      msg.textContent = "已記錄 " + deltas.length + "/4（Δ " + Math.round(dt) + "ms）";
+    }
+
+    calibrateScreen.addEventListener("pointerdown", onTap);
+    msg.textContent = "準備…";
+
+    function beat() {
+      if (i >= 4) {
+        calibrateScreen.removeEventListener("pointerdown", onTap);
+        calBusy = false;
+        if (deltas.length >= 2) {
+          const avg = deltas.reduce((a, b) => a + b, 0) / deltas.length;
+          // positive avg => user tapped after flash => need latency compensation
+          const ms = Math.max(0, Math.min(200, Math.round(avg)));
+          applyLatency(ms);
+          showToast("校准完成：延遲 " + ms + "ms");
+          $("#calibrate-msg").textContent = "完成！延遲設為 " + ms + "ms";
+        } else {
+          showToast("校准次數不足");
+        }
+        setTimeout(() => {
+          calibrateScreen.classList.remove("active");
+          if (chart) readyScreen.classList.add("active");
+        }, 700);
+        return;
+      }
+      i += 1;
+      expected = performance.now();
+      listening = true;
+      flash.classList.add("pulse");
+      msg.textContent = "撳！（" + i + "/4）";
+      setTimeout(() => flash.classList.remove("pulse"), 120);
+      setTimeout(beat, interval);
+    }
+    setTimeout(beat, 500);
+  }
+
   btnLoad.addEventListener("click", loadFromUrlInput);
   btnSample.addEventListener("click", loadSample);
   btnPlay.addEventListener("click", startPlay);
@@ -360,6 +525,13 @@
   btnShare.addEventListener("click", copyShare);
   $("#btn-result-share").addEventListener("click", copyShare);
   audioFile.addEventListener("change", onAudioSelected);
+  latencyInput.addEventListener("input", () => applyLatency(latencyInput.value));
+  btnCalibrate.addEventListener("click", openCalibrate);
+  $("#btn-cal-start").addEventListener("click", runCalibrate);
+  $("#btn-cal-cancel").addEventListener("click", () => {
+    calibrateScreen.classList.remove("active");
+    if (chart) readyScreen.classList.add("active");
+  });
   btnRetry.addEventListener("click", () => {
     if (chart) startPlay();
   });
@@ -367,6 +539,7 @@
     game.stop();
     cancelAnimationFrame(raf);
     YTBridge.pause();
+    setPlayingUi(false);
     resultScreen.classList.remove("active");
     readyScreen.classList.add("active");
   });
@@ -388,7 +561,7 @@
   } else {
     readyScreen.classList.add("active");
     $("#ready-title").textContent = "貼上 YouTube 連結開始應援";
-    $("#ready-meta").textContent = "填 BPM → Load；或上傳 CC 音訊偵測後再對應 YT";
+    $("#ready-meta").textContent = "填 BPM → Load；Sample 已夾短片長；可校准延遲";
     btnPlay.disabled = true;
   }
 })();
