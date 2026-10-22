@@ -1,5 +1,5 @@
 /* Minimal SW for A2HS / installability — cache shell only, never YT media */
-const CACHE = "ouendan-yt-shell-v3";
+const CACHE = "ouendan-yt-shell-v5";
 const ASSETS = [
   "./",
   "./index.html",
