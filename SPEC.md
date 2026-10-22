@@ -10,7 +10,23 @@
 1. 使用者貼上 YouTube URL → **Load** 解析 `videoId`，自動產生簡易譜面（或載入分享連結／sample）。
 2. **Play**：嵌入式 YT IFrame 開始播放；畫面下方／側邊為遊玩區（playfield）。
 3. 以 `player.getCurrentTime()` 為唯一時鐘，標記依 `t`（秒）出現：接近環縮小 → 玩家點擊／滑動／轉圈。
-4. 判定影響 **Life 條** 與分數；Life 歸零 → Fail；曲終且 Life > 0 → Clear。
+4. 判定影響 **裝置延遲（Device latency）**
+- 與拍子 **Offset** 分開：Offset 對齊音樂節拍；Latency（ms）補償手機觸控／顯示延遲。
+- 判定時鐘：`getCurrentTime() + offset - latencySec`。
+- UI：0–200ms slider +「校准」（跟閃光撳 4 次估平均延遲）；存 localStorage。
+
+**片長夾緊／結束（防 softlock）**
+- 載入後若知悉 YT `getDuration()`，`clampChartToDuration` 刪除／縮短超出片長的標記；`endTime` 唔超過片長。
+- Auto-chart／Regen 以 `duration - margin` 為上限，唔會擺標記喺片尾之後。
+- YT `ENDED` 或 `currentTime >= duration` → `forceResolveEnd`：剩餘標記當 Miss，然後 Clear 或因 Life 歸零 Fail — **禁止**卡死。
+
+**遊玩 HUD**
+- Play 期間收合 beatbar 以騰出 playfield。
+- 即將出現嘅 Hit 之間畫編號導引線（Ouendan-like trails）。
+- YT `controls=0`，避免拖動進度造成譜面不同步。
+- 判定可顯示 EARLY／LATE。
+
+**Life 條** 與分數；Life 歸零 → Fail；曲終且 Life > 0 → Clear。
 5. 結果畫面顯示分數／判定統計；**Share** 複製含 `videoId` + chart JSON 的 permalink（**不**分享音訊）。
 
 ---
@@ -180,9 +196,10 @@ https://<host>/index.html#v=<videoId>&c=<base64url(JSON chart without bulky fiel
 
 ## 9. 已知限制（寫入 README 同步）
 
-- 純 YT 路徑唔分析音訊；BPM 靠手填或「上傳同源 CC 音訊」偵測，對錯拍要靠 Offset。
-- Web Audio 偵測係粗略 onset／autocorr，電子鼓準啲、人聲／ thrash 可能唔穩；只分析最長約 90 秒。
+- 純 YT 路徑唔分析音訊；BPM 靠手填或「上傳同源 CC 音訊」偵測；拍子靠 Offset，觸控手感靠 Latency。
+- Web Audio 偵測係粗略 onset／autocorr；只分析最長約 90 秒。
 - 上傳音訊 BPM 同 YT 片若唔係同一首歌／有前奏差，仍會錯位。
-- `getCurrentTime()` 有取樣誤差；長時間可能 drift。
+- `getCurrentTime()` 有取樣誤差；長時間可能 drift；唔好靠拖動影片進度（controls 已關）。
+- Sample 用短片時譜面必須 ≤ 片長（載入時會再 clamp）。
 - `file://` 下 YT API 可能受限 → 請用本機 HTTP server。
 - 部分影片禁止嵌入 → 需換 `videoId`。
