@@ -20,6 +20,17 @@
     <div><strong>請橫放手機</strong></div>
   </div>
 
+
+  <!-- Personal-use disclaimer (before home) -->
+  <div id="disclaimer-gate" class="screen gate" hidden>
+    <div class="card gate-card">
+      <p class="disclaimer-text">作為個人學習、研究或同好交流測試，避免進行商業營利行為。</p>
+      <div class="actions">
+        <button class="btn btn-go" id="btn-disclaimer-ok" type="button">明白／開始</button>
+      </div>
+    </div>
+  </div>
+
   <div id="a2hs-gate" class="screen gate" hidden>
     <div class="card gate-card">
       <h2>加到主畫面</h2>
@@ -108,7 +119,7 @@
         </div>
 
         <!-- HOME: only big URL + Paste + Go -->
-        <div class="screen home-screen active" id="ready-screen">
+        <div class="screen home-screen" id="ready-screen">
           <div class="home-card">
             <input
               id="home-url"

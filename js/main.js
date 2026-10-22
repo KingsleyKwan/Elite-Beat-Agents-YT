@@ -43,6 +43,7 @@
   const lobbyScreen = $("#lobby-screen");
   const calibrateScreen = $("#calibrate-screen");
   const a2hsGate = $("#a2hs-gate");
+  const disclaimerGate = $("#disclaimer-gate");
   const moreSheet = $("#more-sheet");
   const topbar = $("#topbar");
   const gameHud = $("#game-hud");
@@ -66,6 +67,7 @@
   let autoMeta = { bpm: 120, offset: 0, source: "default", label: "自動" };
   const LATENCY_KEY = "ouendan-yt-latency-ms";
   const A2HS_SKIP_KEY = "ouendan-yt-a2hs-skip";
+  const DISCLAIMER_KEY = "ouendan-yt-disclaimer-ok";
   const HELPER_URL = "http://127.0.0.1:8767";
   const BEAT_TAP_TARGET = 8;
   let beatTapTimes = [];
@@ -680,6 +682,33 @@
     const btn = $("#btn-a2hs-install");
     if (btn) btn.hidden = false;
   });
+
+  function shouldSkipDisclaimer() {
+    // Fresh browser loads always show; only skip if installed (standalone) and agreed once
+    if (!isStandalone()) return false;
+    return localStorage.getItem(DISCLAIMER_KEY) === "1";
+  }
+
+  function showDisclaimerThenContinue(next) {
+    if (shouldSkipDisclaimer()) {
+      next();
+      return;
+    }
+    disclaimerGate.hidden = false;
+    disclaimerGate.classList.add("active");
+    // hide home until accepted
+    readyScreen.classList.remove("active");
+    const btn = $("#btn-disclaimer-ok");
+    function onOk() {
+      localStorage.setItem(DISCLAIMER_KEY, "1");
+      disclaimerGate.hidden = true;
+      disclaimerGate.classList.remove("active");
+      btn.removeEventListener("click", onOk);
+      next();
+    }
+    btn.addEventListener("click", onOk);
+  }
+
   function setupA2hsGate() {
     if (isStandalone() || localStorage.getItem(A2HS_SKIP_KEY) === "1") {
       a2hsGate.hidden = true;
@@ -787,12 +816,15 @@
   });
 
   game.resize();
-  setupA2hsGate();
-  const shared = ChartUtil.parseShareFromLocation();
-  if (shared) {
-    loadChart(shared);
-  } else {
-    setMode("home");
-    setTimeout(() => homeUrl && homeUrl.focus(), 300);
+  function afterDisclaimer() {
+    setupA2hsGate();
+    const shared = ChartUtil.parseShareFromLocation();
+    if (shared) {
+      loadChart(shared);
+    } else {
+      setMode("home");
+      setTimeout(() => homeUrl && homeUrl.focus(), 300);
+    }
   }
+  showDisclaimerThenContinue(afterDisclaimer);
 })();

@@ -683,3 +683,19 @@ html, body {
 #lobby-screen.active {
   display: flex !important;
 }
+
+.disclaimer-text {
+  font-size: 1.05rem !important;
+  line-height: 1.55 !important;
+  color: #f1f5f9 !important;
+  font-weight: 600;
+  margin: 0.5rem 0 1.25rem !important;
+  text-align: center;
+}
+#disclaimer-gate {
+  z-index: 55;
+}
+#disclaimer-gate .btn-go {
+  width: 100%;
+  min-height: 52px !important;
+}
