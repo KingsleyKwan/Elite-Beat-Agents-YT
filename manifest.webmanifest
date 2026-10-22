@@ -1,0 +1,16 @@
+{
+  "name": "押忍！YouTube 応援団",
+  "short_name": "応援団YT",
+  "description": "橫向節奏遊戲：YouTube 影片上疊標記應援（不下載音訊）",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "landscape",
+  "background_color": "#0b0e17",
+  "theme_color": "#ff4d6d",
+  "lang": "zh-HK",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
