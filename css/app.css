@@ -451,3 +451,65 @@ html, body {
   padding: 0.15rem 0.45rem;
   white-space: nowrap;
 }
+
+/* Phone-first large touch targets */
+.btn-touch-lg {
+  padding: 0.65rem 1rem !important;
+  font-size: 0.9rem !important;
+  min-height: 44px;
+  border-radius: 12px !important;
+}
+.phone-actions {
+  flex-direction: column !important;
+  align-items: stretch !important;
+}
+.phone-actions .btn,
+.phone-actions .bb-upload {
+  width: 100%;
+  justify-content: center;
+  text-align: center;
+}
+#btn-audio-label.btn-touch-lg {
+  background: var(--accent2);
+  color: #0b0e17;
+  border: none;
+  font-weight: 800;
+}
+.beat-tap-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 25;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0,0,0,0.45);
+  padding: 0.75rem;
+}
+.beat-tap-overlay[hidden] { display: none !important; }
+.beat-tap-card {
+  background: rgba(20,26,42,0.92);
+  border: 1px solid #334155;
+  border-radius: 16px;
+  padding: 1rem 1.25rem;
+  text-align: center;
+  max-width: 360px;
+  width: 92%;
+  backdrop-filter: blur(10px);
+}
+.beat-tap-card h3 { margin-bottom: 0.35rem; }
+.beat-tap-card p { color: var(--muted); font-size: 0.85rem; margin-bottom: 0.5rem; }
+.beat-tap-count {
+  font-size: 1.4rem;
+  font-weight: 800;
+  color: var(--accent2);
+  margin: 0.35rem 0 0.75rem;
+}
+.btn-tap-pad {
+  width: 100%;
+  min-height: 88px !important;
+  font-size: 1.35rem !important;
+  border-radius: 16px !important;
+  margin-bottom: 0.75rem;
+  background: var(--accent) !important;
+}
+.btn-tap-pad:active { transform: scale(0.96); background: #ff6b85 !important; }

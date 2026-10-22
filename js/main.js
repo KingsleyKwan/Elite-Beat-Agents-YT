@@ -24,6 +24,14 @@
   const btnCalibrate = $("#btn-calibrate");
   const btnAdvanced = $("#btn-advanced");
   const btnLocalHelper = $("#btn-local-helper");
+  const btnBeatTap = $("#btn-beat-tap");
+  const btnBeatTapReady = $("#btn-beat-tap-ready");
+  const beatTapOverlay = $("#beat-tap-overlay");
+  const beatTapMsg = $("#beat-tap-msg");
+  const beatTapCount = $("#beat-tap-count");
+  const btnTapPad = $("#btn-tap-pad");
+  const btnBeatTapDone = $("#btn-beat-tap-done");
+  const btnBeatTapCancel = $("#btn-beat-tap-cancel");
   const audioFile = $("#audio-file");
   const audioFileReady = $("#audio-file-ready");
   const lifeFill = $("#life-fill");
@@ -53,7 +61,10 @@
 
   const LATENCY_KEY = "ouendan-yt-latency-ms";
   const A2HS_SKIP_KEY = "ouendan-yt-a2hs-skip";
-  const HELPER_URL = "http://127.0.0.1:8767";
+  const HELPER_URL = "http://127.0.0.1:8767"; // 進階／電腦 only；電話唔使
+  const BEAT_TAP_TARGET = 8;
+  let beatTapTimes = [];
+  let beatTapActive = false;
 
   const DIFF = ChartUtil.DIFFICULTY_PRESETS;
 
@@ -67,15 +78,15 @@
   function loadStoredLatency() {
     const v = parseInt(localStorage.getItem(LATENCY_KEY) || "40", 10);
     const ms = Number.isFinite(v) ? Math.max(0, Math.min(200, v)) : 40;
-    latencyInput.value = String(ms);
-    latencyVal.textContent = String(ms);
+    if (latencyInput) latencyInput.value = String(ms);
+    if (latencyVal) latencyVal.textContent = String(ms);
     return ms;
   }
 
   function applyLatency(ms) {
     ms = Math.max(0, Math.min(200, Number(ms) || 0));
-    latencyInput.value = String(ms);
-    latencyVal.textContent = String(ms);
+    if (latencyInput) latencyInput.value = String(ms);
+    if (latencyVal) latencyVal.textContent = String(ms);
     localStorage.setItem(LATENCY_KEY, String(ms));
     game.setDeviceLatencyMs(ms);
   }
@@ -353,7 +364,7 @@
       chart.bpm +
       "｜難度 " +
       diffLabel +
-      "｜純 Pages 唔下載 YT；可上傳音訊或開本機對拍伺服器";
+      "｜電話：上傳音訊或跟拍校准；唔使電腦";
     btnPlay.disabled = false;
   }
 
@@ -425,7 +436,7 @@
     const file = ev.target.files && ev.target.files[0];
     ev.target.value = "";
     if (!file) return;
-    showToast("分析本地／CC 音訊（唔經 YT 下載）…");
+    showToast("分析電話音訊檔（唔下載 YT）…");
     try {
       const meta = await BeatDetect.analyzeFile(file);
       audioDetectMeta = Object.assign({}, meta, { source: "webaudio" });
@@ -439,13 +450,123 @@
       const id = ChartUtil.parseVideoId(urlInput.value) || lastVideoId;
       if (id) {
         await buildAndLoad(id);
-        showToast("已用上傳音訊 BPM 產譜；播放仍用 YT 嵌入");
+        showToast("已用上傳音訊對拍；播放仍用 YT 畫面");
       } else {
-        showToast("已填自動 BPM — 請貼同一首歌 YT URL 再 Load");
+        showToast("已得 BPM — 請貼同一首歌 YT 再 Load");
       }
     } catch (err) {
       showToast(String(err.message || err));
     }
+  }
+
+  
+  function estimateBpmFromTaps(times) {
+    if (!times || times.length < 4) return null;
+    const intervals = [];
+    for (let i = 1; i < times.length; i++) {
+      const d = times[i] - times[i - 1];
+      if (d > 0.15 && d < 2.5) intervals.push(d);
+    }
+    if (intervals.length < 3) return null;
+    intervals.sort((a, b) => a - b);
+    const med = intervals[Math.floor(intervals.length / 2)];
+    const filtered = intervals.filter((x) => x > med * 0.72 && x < med * 1.28);
+    const use = filtered.length >= 2 ? filtered : intervals;
+    const avg = use.reduce((a, b) => a + b, 0) / use.length;
+    let bpm = 60 / avg;
+    while (bpm < 75 && bpm * 2 <= 180) bpm *= 2;
+    while (bpm > 175 && bpm / 2 >= 70) bpm /= 2;
+    bpm = Math.round(bpm * 10) / 10;
+    const beat = 60 / bpm;
+    let off = times[0] % beat;
+    if (off > beat / 2) off -= beat;
+    // refine offset with all taps
+    let phase = 0;
+    for (const t of times) {
+      let p = t % beat;
+      if (p > beat / 2) p -= beat;
+      phase += p;
+    }
+    off = phase / times.length;
+    return {
+      bpm: bpm,
+      offset: Math.round(off * 1000) / 1000,
+      source: "beat-tap",
+      label: "跟拍",
+    };
+  }
+
+  async function startBeatTap() {
+    const id = ChartUtil.parseVideoId(urlInput.value) || lastVideoId || (chart && chart.videoId);
+    if (!id) {
+      showToast("請先貼 YouTube URL 並 Load");
+      return;
+    }
+    if (!YTBridge.player) {
+      await ensurePlayer(id);
+      await waitDuration(3000);
+    }
+    beatTapTimes = [];
+    beatTapActive = true;
+    beatTapCount.textContent = "0 / " + BEAT_TAP_TARGET;
+    beatTapMsg.textContent = "跟住音樂拍子撳大掣（建議 6–8 下）";
+    btnBeatTapDone.disabled = true;
+    beatTapOverlay.hidden = false;
+    readyScreen.classList.remove("active");
+    // Preview play for tapping (not full game)
+    ytEnded = false;
+    YTBridge.seek(Math.max(0, (YTBridge.getTime() || 0) < 1 ? 0 : YTBridge.getTime()));
+    YTBridge.play();
+    showToast("跟拍中：聽到拍就撳");
+  }
+
+  function onBeatTapPad() {
+    if (!beatTapActive) return;
+    const t = YTBridge.getTime();
+    if (!(t >= 0)) return;
+    // debounce double taps < 120ms
+    if (beatTapTimes.length && t - beatTapTimes[beatTapTimes.length - 1] < 0.12) return;
+    beatTapTimes.push(t);
+    beatTapCount.textContent = beatTapTimes.length + " / " + BEAT_TAP_TARGET;
+    beatTapMsg.textContent =
+      beatTapTimes.length >= 4
+        ? "夠用啦，可再撳或按「完成並產譜」"
+        : "繼續跟拍…（至少 4 下）";
+    if (beatTapTimes.length >= 4) btnBeatTapDone.disabled = false;
+    if (beatTapTimes.length >= BEAT_TAP_TARGET) {
+      finishBeatTap();
+    }
+  }
+
+  async function finishBeatTap() {
+    if (!beatTapActive) return;
+    beatTapActive = false;
+    const est = estimateBpmFromTaps(beatTapTimes);
+    beatTapOverlay.hidden = true;
+    YTBridge.pause();
+    if (!est) {
+      showToast("拍數唔夠或太亂，請再試跟拍校准");
+      if (chart) readyScreen.classList.add("active");
+      return;
+    }
+    audioDetectMeta = est;
+    setAutoBadge(est);
+    const id = ChartUtil.parseVideoId(urlInput.value) || lastVideoId || (chart && chart.videoId);
+    if (id) {
+      await buildAndLoad(id);
+      showToast("跟拍完成 BPM " + est.bpm + " Offset " + est.offset);
+    } else {
+      showToast("跟拍得 BPM " + est.bpm + " — 請 Load URL");
+      readyScreen.classList.add("active");
+    }
+  }
+
+  function cancelBeatTap() {
+    beatTapActive = false;
+    beatTapTimes = [];
+    beatTapOverlay.hidden = true;
+    YTBridge.pause();
+    if (chart) readyScreen.classList.add("active");
   }
 
   async function runLocalHelper() {
@@ -454,7 +575,7 @@
       showToast("請先貼 YouTube URL");
       return;
     }
-    showToast("呼叫本機對拍伺服器 127.0.0.1:8767 …");
+    showToast("（進階）呼叫電腦 127.0.0.1 — 電話請改用上傳／跟拍…");
     try {
       const res = await fetch(HELPER_URL + "/analyze?v=" + encodeURIComponent(id), {
         mode: "cors",
@@ -478,7 +599,7 @@
     } catch (err) {
       console.warn(err);
       showToast(
-        "本機伺服器未開或失敗。請喺 tools/server 跑 server.py（純 Pages 唔能夠下載 YT）"
+        "電話唔使電腦伺服器。請用「上傳音訊」或「跟拍校准」。（純網頁無法下載 YT）"
       );
     }
   }
@@ -626,9 +747,14 @@
   $("#btn-result-share").addEventListener("click", copyShare);
   audioFile.addEventListener("change", onAudioSelected);
   if (audioFileReady) audioFileReady.addEventListener("change", onAudioSelected);
-  btnLocalHelper.addEventListener("click", runLocalHelper);
-  latencyInput.addEventListener("input", () => applyLatency(latencyInput.value));
-  btnCalibrate.addEventListener("click", openCalibrate);
+  if (btnLocalHelper) btnLocalHelper.addEventListener("click", runLocalHelper);
+  if (btnBeatTap) btnBeatTap.addEventListener("click", startBeatTap);
+  if (btnBeatTapReady) btnBeatTapReady.addEventListener("click", startBeatTap);
+  if (btnTapPad) btnTapPad.addEventListener("pointerdown", (e) => { e.preventDefault(); onBeatTapPad(); });
+  if (btnBeatTapDone) btnBeatTapDone.addEventListener("click", finishBeatTap);
+  if (btnBeatTapCancel) btnBeatTapCancel.addEventListener("click", cancelBeatTap);
+  if (latencyInput) latencyInput.addEventListener("input", () => applyLatency(latencyInput.value));
+  if (btnCalibrate) btnCalibrate.addEventListener("click", openCalibrate);
   $("#btn-cal-start").addEventListener("click", runCalibrate);
   $("#btn-cal-cancel").addEventListener("click", () => {
     calibrateScreen.classList.remove("active");
@@ -669,7 +795,7 @@
   } else {
     readyScreen.classList.add("active");
     $("#ready-title").textContent = "貼上 YouTube → Load → Play";
-    $("#ready-meta").textContent = "個人學習｜自動 BPM｜難度 易／正常／難";
+    $("#ready-meta").textContent = "電話專用｜揀難度即可｜上傳音訊或跟拍校准";
     btnPlay.disabled = true;
   }
 })();

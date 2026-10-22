@@ -1,25 +1,13 @@
-# Elite Beat Agents YT（應援團 YT）
+# Elite Beat Agents YT — 電話專用
 
-**個人學習／唔對外分享。**
+**電話·個人學習。唔使電腦跑伺服器。**
 
-> ⚠️ **GitHub Pages（github.io）通常係公開網址。** 任何人有連結都睇到。  
-> 呢個靜態站**唔會**、亦**唔應該**提供 YouTube 下載 API。若要 yt-dlp 自動對拍，只可喺你部電腦跑 `tools/server`（唔係 Pages）。
+> ⚠️ github.io 通常**公開**。靜態站**不會**下載 YouTube 音訊。
 
-## 線上
+## 玩法
 
-**https://kingsleykwan.github.io/Elite-Beat-Agents-YT/**
+1. 手機打開 → **加到主畫面** → 橫放  
+2. 貼 YT → Load → 難度 易／正常／難 → Play  
+3. 準拍：**上傳音訊** 或 **跟拍校准**
 
-手機橫放；建議「加到主畫面」全螢幕。流程：貼 YT → Load → 難度 易／正常／難 → Play。  
-自動 BPM：啟發式；或上傳同一首歌音訊。播放永遠用嵌入 IFrame（時鐘 `getCurrentTime`）。
-
-## 本機
-
-```bash
-python3 -m http.server 8080
-```
-
-可選對拍伺服器（私人）：repo 內 `tools/server`（綁 127.0.0.1）。
-
-## 檔案
-
-`index.html` · `css/` · `js/` · `sample-chart.json` · `SPEC.md` · `manifest.webmanifest` · `sw.js` · `icons/`
+https://kingsleykwan.github.io/Elite-Beat-Agents-YT/
