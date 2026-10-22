@@ -85,13 +85,424 @@
 
 
 
-/**
+  function round3(x) {
+    return Math.round(x * 1000) / 1000;
+  }
+
+  function melodyTitle(opts, videoId) {
+    const base = (opts && opts.title) || (videoId ? "Auto Chart — " + videoId : "Auto Chart (audio)");
+    if (String(base).indexOf("主旋律") >= 0) return base;
+    return base + " · 主旋律";
+  }
+
+  function percentile(values, p) {
+    if (!values.length) return 0;
+    const s = values.slice().sort(function (a, b) {
+      return a - b;
+    });
+    const i = Math.min(s.length - 1, Math.max(0, Math.floor(p * (s.length - 1))));
+    return s[i];
+  }
+
+  /**
+   * Chart whose hits follow detected melody notes (pitch → Y, time → onsets).
+   * Falls back to the beat grid when melodyNotes is missing.
+   * Marker times are absolute audio times. Chart offset stays 0 so the game
+   * clock (ytTime + offset) does not shift them a second time.
+   */
+  function melodyGridFallback(videoId, opts) {
+    const rest = Object.assign({}, opts);
+    rest.melodyNotes = null;
+    if (rest.chartSource === "melody") rest.chartSource = "procedural";
+    return autoGenerateChart(videoId, rest);
+  }
+
+  function autoGenerateMelodyChart(videoId, opts) {
+    opts = opts || {};
+    const raw = opts.melodyNotes;
+    if (!raw || !raw.length) return melodyGridFallback(videoId, opts);
+
+    const bpm = Math.max(60, Math.min(220, Number(opts.bpm) || 120));
+    const beat = 60 / bpm;
+    const bar = beat * 4;
+    const rawDur = Number(opts.durationHint);
+    const duration = Math.max(5, rawDur > 0 ? rawDur : 45);
+    const margin = 0.45;
+    const approachSec = Number(opts.approachSec) > 0 ? Number(opts.approachSec) : 1.2;
+    const subdiv = [1, 2, 4].indexOf(Number(opts.subdivision)) >= 0 ? Number(opts.subdivision) : 1;
+    const density = opts.density === "sparse" || opts.density === "dense" ? opts.density : "normal";
+    const reservePad = Math.min(0.22, Math.max(0.06, approachSec * 0.1));
+
+    let tEnd = duration - margin;
+    const tail = Math.min(2.5, bar);
+    if (duration - tail > 2) tEnd = Math.min(tEnd, duration - tail);
+    const tMin = 1.15;
+    if (!(tEnd > tMin + beat)) tEnd = Math.max(tMin + beat, duration - margin);
+
+    const notes = [];
+    for (let i = 0; i < raw.length; i++) {
+      const n = raw[i] || {};
+      const pitchHz = Number(n.pitchHz) || 0;
+      let midi = Number(n.midi);
+      if (!(midi > 0) && pitchHz > 0) midi = 69 + (12 * Math.log(pitchHz / 440)) / Math.LN2;
+      const t = Number(n.t);
+      if (!(t >= tMin - 0.02 && t <= tEnd && midi > 0 && pitchHz > 0)) continue;
+      let dur = Number(n.duration);
+      if (!(dur > 0)) dur = 0.12;
+      notes.push({
+        t: t,
+        duration: dur,
+        pitchHz: pitchHz,
+        midi: midi,
+        strength: Number.isFinite(Number(n.strength)) ? Number(n.strength) : 0.5,
+      });
+    }
+    notes.sort(function (a, b) {
+      return a.t - b.t;
+    });
+    if (!notes.length) return melodyGridFallback(videoId, opts);
+
+    const minGap = density === "sparse" ? beat * 1.05 : density === "dense" ? Math.max(0.1, beat * 0.28) : beat * 0.42;
+    const thinned = thinMelodyNotes(notes, minGap);
+    const playable = thinned.length ? thinned : notes;
+
+    let midiLo = Infinity;
+    let midiHi = -Infinity;
+    for (let i = 0; i < playable.length; i++) {
+      if (playable[i].midi < midiLo) midiLo = playable[i].midi;
+      if (playable[i].midi > midiHi) midiHi = playable[i].midi;
+    }
+
+    function yFor(midi) {
+      if (!(midiHi > midiLo + 0.4)) return 0.5;
+      const norm = (midi - midiLo) / (midiHi - midiLo);
+      const y = 0.75 - norm * 0.5;
+      if (y < 0.25) return 0.25;
+      if (y > 0.75) return 0.75;
+      return y;
+    }
+
+    assignMelodyX(playable, beat, yFor);
+
+    const taken = new Set();
+    const maxSpin = density === "sparse" ? 2 : density === "dense" ? 5 : 3;
+    const strengths = playable.map(function (n) {
+      return n.strength;
+    });
+    const p70 = percentile(strengths, 0.7);
+    const spins = [];
+    let lastSpinT = -99;
+    for (let i = 0; i < playable.length; i++) {
+      if (spins.length >= maxSpin) break;
+      const n = playable[i];
+      const sustained = n.duration >= beat * 1.5;
+      let climax = false;
+      if (!sustained && midiHi - midiLo >= 3 && n.strength >= p70 && n.midi >= midiHi - 2.5 && n.duration >= beat * 0.7) {
+        const prevM = i > 0 ? playable[i - 1].midi : n.midi - 2;
+        const nextM = i < playable.length - 1 ? playable[i + 1].midi : n.midi - 2;
+        climax = n.midi >= prevM + 1.2 && n.midi >= nextM + 1.2;
+      }
+      if (!sustained && !climax) continue;
+      if (n.t - lastSpinT < beat * 4) continue;
+      let spinDur = Math.max(beat * 1.1, Math.min(n.duration, beat * 2.6));
+      const nxt = playable[i + 1];
+      if (nxt && n.t + spinDur > nxt.t - reservePad) spinDur = nxt.t - reservePad - n.t;
+      if (n.t + spinDur > tEnd) spinDur = tEnd - n.t;
+      if (spinDur < Math.max(0.45, beat * 0.9)) continue;
+      spins.push({ note: n, duration: spinDur });
+      taken.add(n);
+      lastSpinT = n.t;
+    }
+
+    const maxPhrase = density === "sparse" ? 2 : density === "dense" ? 5 : 3;
+    const phraseGap = bar * (density === "sparse" ? 8 : density === "dense" ? 4 : 6);
+    const phrases = [];
+    let lastPhraseT = -99;
+    let iNote = 0;
+    while (iNote < playable.length && phrases.length < maxPhrase) {
+      if (taken.has(playable[iNote])) {
+        iNote++;
+        continue;
+      }
+      let best = null;
+      const maxLen = Math.min(7, playable.length - iNote);
+      for (let len = maxLen; len >= 4; len--) {
+        const run = playable.slice(iNote, iNote + len);
+        if (run.some(function (n) { return taken.has(n); })) continue;
+        let close = true;
+        for (let k = 1; k < run.length; k++) {
+          if (run[k].t - run[k - 1].t > beat * 1.25) {
+            close = false;
+            break;
+          }
+        }
+        if (!close) continue;
+        const kind = melodyContour(run);
+        if (!kind) continue;
+        const span = run[run.length - 1].t - run[0].t;
+        if (span < Math.max(0.65, beat * 1.15) || span > beat * 6) continue;
+        best = run;
+        break;
+      }
+      if (!best) {
+        iNote++;
+        continue;
+      }
+      if (best[0].t - lastPhraseT < phraseGap) {
+        iNote++;
+        continue;
+      }
+      let dur = best[best.length - 1].t + Math.min(best[best.length - 1].duration, beat * 0.8) - best[0].t;
+      dur = Math.max(beat * 1.2, Math.min(dur, beat * 4));
+      const after = playable[iNote + best.length];
+      if (after && best[0].t + dur > after.t - reservePad) dur = after.t - reservePad - best[0].t;
+      if (best[0].t + dur > tEnd) dur = tEnd - best[0].t;
+      if (dur >= Math.max(0.55, beat)) {
+        phrases.push({ run: best, duration: dur });
+        for (let k = 0; k < best.length; k++) taken.add(best[k]);
+        lastPhraseT = best[0].t;
+        iNote += best.length;
+      } else {
+        iNote++;
+      }
+    }
+
+    const reserved = [];
+    function overlapsReserved(t, pad) {
+      const p = pad == null ? reservePad : pad;
+      for (let i = 0; i < reserved.length; i++) {
+        const r = reserved[i];
+        if (t + p >= r.t0 && t - p <= r.t1) return true;
+      }
+      return false;
+    }
+    function reserve(t0, t1) {
+      reserved.push({ t0: t0, t1: t1 });
+    }
+
+    const markers = [];
+    for (let i = 0; i < phrases.length; i++) {
+      const ph = phrases[i];
+      const path = sampleContour(ph.run);
+      if (path.length < 2) continue;
+      const t = ph.run[0].t;
+      reserve(t - reservePad, t + ph.duration + reservePad * 0.5);
+      markers.push({
+        type: "phrase",
+        t: round3(t),
+        duration: round3(ph.duration),
+        path: path,
+      });
+    }
+    for (let i = 0; i < spins.length; i++) {
+      const sp = spins[i];
+      const n = sp.note;
+      reserve(n.t - reservePad, n.t + sp.duration + reservePad * 0.5);
+      markers.push({
+        type: "spin",
+        t: round3(n.t),
+        duration: round3(sp.duration),
+        x: round3(clamp01(n.x)),
+        y: round3(clamp01(n.y)),
+        revs: 1,
+      });
+    }
+
+    const hitGap = density === "sparse" ? beat * 0.9 : density === "dense" ? Math.max(0.1, beat * 0.25) : Math.max(0.12, beat * 0.38);
+    let lastHitT = -99;
+    for (let i = 0; i < playable.length; i++) {
+      const n = playable[i];
+      if (taken.has(n)) continue;
+      if (n.t > tEnd) continue;
+      if (overlapsReserved(n.t, reservePad)) continue;
+      if (n.t - lastHitT < hitGap - 1e-6) continue;
+      markers.push({
+        type: "hit",
+        t: round3(n.t),
+        x: round3(clamp01(n.x)),
+        y: round3(clamp01(n.y)),
+      });
+      lastHitT = n.t;
+    }
+
+    markers.sort(function (a, b) {
+      return a.t - b.t;
+    });
+    let hn = 1;
+    for (let i = 0; i < markers.length; i++) {
+      if (markers[i].type === "hit") markers[i].n = hn++;
+    }
+
+    const breaks = [];
+    const breakAt = [0.45, 0.78];
+    for (let i = 0; i < breakAt.length; i++) {
+      const rawT = tMin + (tEnd - tMin) * breakAt[i];
+      const snapped = Math.round(rawT / bar) * bar;
+      const bt = snapped > tMin + bar && snapped < tEnd - beat ? snapped : rawT;
+      if (bt > tMin + beat && bt < tEnd - beat && !overlapsReserved(bt, 0.25)) {
+        breaks.push({ t: round3(bt), kind: "meter" });
+      }
+    }
+    if (!breaks.length && tEnd > tMin + bar * 2) {
+      const mid = (tMin + tEnd) / 2;
+      if (!overlapsReserved(mid, 0.2)) breaks.push({ t: round3(mid), kind: "meter" });
+    }
+
+    if (!markers.length) return melodyGridFallback(videoId, opts);
+
+    // Analysis only covers the opening (~90s). Keep a beat grid after the last
+    // melody marker so a longer video does not clear as soon as the clip ends.
+    let lastMel = 0;
+    for (let i = 0; i < markers.length; i++) lastMel = Math.max(lastMel, markerEndTime(markers[i]));
+    if (duration - lastMel > bar * 4) {
+      const tail = autoGenerateChart(videoId, {
+        bpm: bpm,
+        offset: Number(opts.offset) || 0,
+        durationHint: duration,
+        approachSec: approachSec,
+        subdivision: subdiv,
+        density: density,
+        barsPerPhrase: opts.barsPerPhrase,
+        melodyNotes: null,
+        chartSource: "procedural",
+      });
+      const tailStart = lastMel + Math.max(0.45, beat * 0.9);
+      const extra = [];
+      const tailMarkers = (tail && tail.markers) || [];
+      for (let i = 0; i < tailMarkers.length; i++) {
+        if (tailMarkers[i].t >= tailStart) extra.push(tailMarkers[i]);
+      }
+      const tailBreaks = (tail && tail.breaks) || [];
+      for (let i = 0; i < tailBreaks.length; i++) {
+        if (tailBreaks[i].t >= tailStart) breaks.push(tailBreaks[i]);
+      }
+      for (let i = 0; i < extra.length; i++) markers.push(extra[i]);
+      markers.sort(function (a, b) {
+        return a.t - b.t;
+      });
+      let nHit = 1;
+      for (let i = 0; i < markers.length; i++) {
+        if (markers[i].type === "hit") markers[i].n = nHit++;
+      }
+      breaks.sort(function (a, b) {
+        return a.t - b.t;
+      });
+    }
+
+    return {
+      version: SCHEMA_VERSION,
+      videoId: videoId || "",
+      title: melodyTitle(opts, videoId),
+      bpm: bpm,
+      offset: 0,
+      approachSec: approachSec,
+      durationHint: round3(duration),
+      subdivision: subdiv,
+      density: density,
+      chartSource: "melody",
+      markers: markers,
+      breaks: breaks,
+    };
+  }
+
+  function thinMelodyNotes(notes, minGap) {
+    const order = notes.map(function (n, i) {
+      return { n: n, i: i };
+    });
+    order.sort(function (a, b) {
+      return b.n.strength - a.n.strength || a.n.t - b.n.t;
+    });
+    const picked = [];
+    for (let i = 0; i < order.length; i++) {
+      const n = order[i].n;
+      let ok = true;
+      for (let j = 0; j < picked.length; j++) {
+        if (Math.abs(picked[j].t - n.t) < minGap) {
+          ok = false;
+          break;
+        }
+      }
+      if (ok) picked.push(n);
+    }
+    picked.sort(function (a, b) {
+      return a.t - b.t;
+    });
+    return picked;
+  }
+
+  /** Left → right along a melodic run; wrap back to the left when the run is long. */
+  function assignMelodyX(notes, beat, yFor) {
+    const beatGap = beat * 1.45;
+    const maxRun = 6;
+    const singles = [0.28, 0.5, 0.72, 0.38, 0.62];
+    let i = 0;
+    let runIndex = 0;
+    while (i < notes.length) {
+      let j = i + 1;
+      while (j < notes.length && j - i < maxRun && notes[j].t - notes[j - 1].t <= beatGap) j++;
+      const count = j - i;
+      for (let k = 0; k < count; k++) {
+        const n = notes[i + k];
+        if (count === 1) n.x = singles[runIndex % singles.length];
+        else n.x = 0.16 + (k / (count - 1)) * 0.68;
+        n.y = yFor(n.midi);
+      }
+      runIndex++;
+      i = j;
+    }
+  }
+
+  function melodyContour(run) {
+    let up = 0;
+    let down = 0;
+    for (let i = 1; i < run.length; i++) {
+      const d = run[i].midi - run[i - 1].midi;
+      if (d > 0.45) up++;
+      else if (d < -0.45) down++;
+    }
+    const steps = run.length - 1;
+    const net = run[run.length - 1].midi - run[0].midi;
+    if (up >= steps * 0.66 && net >= 1.4) return "rise";
+    if (down >= steps * 0.66 && net <= -1.4) return "fall";
+    let peakI = 0;
+    for (let i = 1; i < run.length; i++) if (run[i].midi > run[peakI].midi) peakI = i;
+    const mid = (run.length - 1) / 2;
+    if (peakI > 0 && peakI < run.length - 1 && Math.abs(peakI - mid) <= run.length * 0.4) {
+      const peak = run[peakI].midi;
+      if (peak - run[0].midi >= 1.2 && peak - run[run.length - 1].midi >= 1.2) return "arch";
+    }
+    return null;
+  }
+
+  function sampleContour(run) {
+    // Phrase slides read left → right; Y stays on the pitch contour.
+    const pts = [];
+    const last = run.length - 1;
+    const keep = Math.min(6, run.length);
+    const idxs = [];
+    for (let i = 0; i < keep; i++) idxs.push(keep === 1 ? 0 : Math.round((i * last) / (keep - 1)));
+    for (let i = 0; i < idxs.length; i++) {
+      const n = run[idxs[i]];
+      const x = idxs.length === 1 ? 0.5 : 0.14 + (i / (idxs.length - 1)) * 0.72;
+      const y = clamp01(n.y);
+      const prev = pts.length ? pts[pts.length - 1] : null;
+      if (prev && Math.abs(prev[0] - x) < 0.012 && Math.abs(prev[1] - y) < 0.012) continue;
+      pts.push([round3(clamp01(x)), round3(y)]);
+    }
+    return pts;
+  }
+
+  /**
    * Smarter procedural auto-chart (no YT audio analysis).
    * opts: bpm, offset, durationHint, approachSec, subdivision (1|2|4),
    *        barsPerPhrase (default 8), title, density ('normal'|'sparse'|'dense')
+   * When opts.melodyNotes is a non-empty array, hits follow that melody instead.
    */
   function autoGenerateChart(videoId, opts) {
     opts = opts || {};
+    if (opts.melodyNotes && opts.melodyNotes.length) {
+      return autoGenerateMelodyChart(videoId, opts);
+    }
     const bpm = Math.max(60, Math.min(220, Number(opts.bpm) || 120));
     const offset = Number(opts.offset) || 0;
     const rawDur = Number(opts.durationHint);
@@ -497,6 +908,7 @@
     DIFFICULTY_PRESETS,
     parseVideoId,
     autoGenerateChart,
+    autoGenerateMelodyChart,
     clampChartToDuration,
     markerEndTime,
     normalizeChart,

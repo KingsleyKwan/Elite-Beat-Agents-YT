@@ -220,13 +220,19 @@
     setTimeout(() => toast.classList.remove("show"), 2400);
   }
 
+  function melodyNotesFromMeta() {
+    const notes = audioDetectMeta && audioDetectMeta.melodyNotes;
+    if (notes && notes.length && audioDetectMeta.hasMelody !== false) return notes;
+    return null;
+  }
+
   function readGenOpts(extra) {
     applyDifficultyToHidden();
     const d = difficultyOpts();
     const bpm = parseFloat(bpmInput.value) || autoMeta.bpm || 120;
     const offset = parseFloat(offsetInput.value);
     const off = Number.isFinite(offset) ? offset : autoMeta.offset || 0;
-    return Object.assign(
+    const o = Object.assign(
       {
         bpm,
         offset: off,
@@ -238,13 +244,22 @@
       },
       extra || {}
     );
+    const notes = melodyNotesFromMeta();
+    if (notes) {
+      o.melodyNotes = notes;
+      o.chartSource = "melody";
+      if (!o.title) o.title = "主旋律";
+    }
+    return o;
   }
 
   function syncUiFromChart(c) {
     if (!c) return;
     if (c.bpm != null) {
       bpmInput.value = String(c.bpm);
-      if (autoBpmLabel) autoBpmLabel.textContent = String(c.bpm);
+      const mel = c.chartSource === "melody";
+      if (autoBpmLabel) autoBpmLabel.textContent = mel ? c.bpm + " · 主旋律" : String(c.bpm);
+      if (beatHint) beatHint.textContent = mel ? "主旋律" : "";
     }
     if (c.offset != null) offsetInput.value = String(c.offset);
     if (c.subdivision) subdivSelect.value = String(c.subdivision);
@@ -329,11 +344,12 @@
 
   async function resolveAutoBeat(videoId, duration) {
     if (audioDetectMeta && audioDetectMeta.bpm) {
+      const useMelody = !!(audioDetectMeta.melodyNotes && audioDetectMeta.melodyNotes.length && audioDetectMeta.hasMelody !== false);
       return {
         bpm: audioDetectMeta.bpm,
         offset: audioDetectMeta.offset || 0,
-        source: audioDetectMeta.source || "webaudio",
-        label: audioDetectMeta.label || "偵測",
+        source: useMelody ? "melody" : audioDetectMeta.source || "webaudio",
+        label: useMelody ? "主旋律" : audioDetectMeta.label || "偵測",
       };
     }
     let title = "";
@@ -376,7 +392,8 @@
     game.draw(0);
     const diffLabel = (DIFF[difficultySelect.value] || DIFF.normal).label;
     $("#ready-title").textContent = chart.title || "準備好";
-    $("#ready-meta").textContent = diffLabel + " · " + chart.markers.length + " 標記";
+    const melTag = chart.chartSource === "melody" ? " · 主旋律" : "";
+    $("#ready-meta").textContent = diffLabel + " · " + chart.markers.length + " 標記" + melTag;
     setMode("lobby");
     btnPlay.disabled = false;
   }
@@ -467,12 +484,28 @@
     showToast("分析音訊…");
     try {
       const meta = await BeatDetect.analyzeFile(file);
-      audioDetectMeta = Object.assign({}, meta, { source: "webaudio", label: "音訊" });
-      setAutoBadge({ bpm: meta.bpm, offset: meta.offset, source: "webaudio", label: "音訊" });
+      const useMelody = !!(meta && meta.hasMelody && meta.melodyNotes && meta.melodyNotes.length);
+      audioDetectMeta = Object.assign({}, meta, {
+        source: useMelody ? "melody" : "webaudio",
+        label: useMelody ? "主旋律" : "音訊",
+      });
+      setAutoBadge({
+        bpm: meta.bpm,
+        offset: meta.offset,
+        source: audioDetectMeta.source,
+        label: audioDetectMeta.label,
+      });
       lastDurationHint = meta.duration || lastDurationHint;
       const id = ChartUtil.parseVideoId(urlInput.value || homeUrl.value) || lastVideoId;
-      if (id) await buildAndLoad(id);
-      else showToast("請先貼 YouTube 連結");
+      if (id) {
+        await buildAndLoad(id);
+        if (chart && chart.markers && chart.markers.length) {
+          if (chart.chartSource === "melody") showToast("已跟主旋律");
+          else if (!useMelody) showToast("未找到主旋律，用拍子");
+        }
+      } else {
+        showToast(useMelody ? "主旋律已就緒，請貼連結" : "請先貼 YouTube 連結");
+      }
     } catch (err) {
       showToast(String(err.message || err));
     }
