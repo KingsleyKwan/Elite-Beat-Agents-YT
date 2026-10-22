@@ -73,11 +73,14 @@ html, body {
   position: relative;
   z-index: 2;
   display: grid;
-  grid-template-rows: auto auto 1fr;
+  grid-template-rows: auto 1fr;
   height: 100%;
   width: 100%;
   max-height: 100dvh;
   pointer-events: none; /* children re-enable */
+}
+#app.mode-home {
+  grid-template-rows: 1fr;
 }
 #app > * { pointer-events: auto; }
 
@@ -513,3 +516,170 @@ html, body {
   background: var(--accent) !important;
 }
 .btn-tap-pad:active { transform: scale(0.96); background: #ff6b85 !important; }
+
+/* —— Minimal phone home —— */
+.topbar[hidden] { display: none !important; }
+.topbar {
+  justify-content: space-between;
+  gap: 0.4rem;
+  padding: 0.4rem 0.5rem;
+  padding-top: calc(0.4rem + env(safe-area-inset-top, 0px));
+}
+.topbar .btn-icon {
+  min-width: 44px;
+  min-height: 44px;
+  font-size: 1.25rem;
+  padding: 0.35rem 0.55rem;
+}
+.diff-mini {
+  flex: 0 0 auto;
+  background: rgba(15,23,42,0.9);
+  border: 1px solid #334155;
+  color: #fff;
+  border-radius: 8px;
+  padding: 0.45rem 0.5rem;
+  font-size: 0.9rem;
+  min-height: 44px;
+}
+#btn-play { min-height: 44px; padding: 0.45rem 1.1rem; font-size: 1rem; }
+
+.home-screen {
+  background: rgba(11, 14, 23, 0.55) !important;
+}
+.home-card {
+  width: min(92vw, 520px);
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 0.5rem;
+}
+.home-url {
+  width: 100%;
+  min-height: 64px;
+  font-size: 1.15rem;
+  padding: 0.9rem 1rem;
+  border-radius: 16px;
+  border: 2px solid #475569;
+  background: rgba(15, 23, 42, 0.92);
+  color: #fff;
+  outline: none;
+  -webkit-appearance: none;
+}
+.home-url:focus {
+  border-color: var(--accent2);
+  box-shadow: 0 0 0 3px rgba(76,201,240,0.25);
+}
+.home-url::placeholder { color: #64748b; }
+.home-row {
+  display: grid;
+  grid-template-columns: 1fr 1.4fr;
+  gap: 0.6rem;
+}
+.btn-paste, .btn-go {
+  min-height: 56px !important;
+  font-size: 1.15rem !important;
+  border-radius: 14px !important;
+  font-weight: 800 !important;
+}
+.btn-paste {
+  background: #334155 !important;
+  color: #fff !important;
+}
+.btn-go {
+  background: var(--accent) !important;
+}
+
+.lobby-card {
+  width: min(88vw, 360px);
+  text-align: center;
+  background: rgba(20,26,42,0.88);
+  border: 1px solid #334155;
+  border-radius: 16px;
+  padding: 1.25rem 1.1rem;
+  backdrop-filter: blur(10px);
+}
+.lobby-title {
+  font-size: 1.2rem;
+  font-weight: 800;
+  color: #fff !important;
+  margin-bottom: 0.25rem !important;
+}
+.lobby-meta {
+  font-size: 0.8rem !important;
+  color: #94a3b8 !important;
+  margin-bottom: 0.75rem !important;
+  min-height: 1em;
+}
+.diff-lobby {
+  width: 100%;
+  min-height: 48px;
+  margin-bottom: 0.75rem;
+  font-size: 1rem;
+  border-radius: 12px;
+  background: #0f172a;
+  color: #fff;
+  border: 1px solid #334155;
+  padding: 0.5rem;
+}
+.lobby-card .btn-go { width: 100%; }
+
+.hud[hidden] { display: none !important; }
+
+/* More sheet */
+.sheet[hidden] { display: none !important; }
+.sheet {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+}
+.sheet-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0,0,0,0.5);
+}
+.sheet-panel {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  background: #141a2a;
+  border-radius: 16px 16px 0 0;
+  padding: 1rem 1rem calc(1rem + env(safe-area-inset-bottom, 0px));
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+.sheet-panel h3 {
+  text-align: center;
+  margin-bottom: 0.35rem;
+  font-size: 1rem;
+}
+.sheet-btn {
+  display: block;
+  width: 100%;
+  text-align: center;
+  min-height: 48px;
+  border: none;
+  border-radius: 12px;
+  background: #1e293b;
+  color: #f1f5f9;
+  font-size: 1rem;
+  font-weight: 700;
+  padding: 0.75rem;
+  cursor: pointer;
+}
+.sheet-btn.muted { background: transparent; color: #94a3b8; border: 1px solid #334155; }
+.sheet-btn.bb-upload { display: flex; align-items: center; justify-content: center; }
+
+/* playing: hide topbar extras already handled; ensure home hidden */
+#app.playing #topbar { opacity: 0; max-height: 0; padding: 0; overflow: hidden; pointer-events: none; border: 0; }
+#app.mode-home #topbar { display: none !important; }
+#app.mode-lobby #topbar { display: flex !important; }
+#app.mode-play #game-hud { display: flex !important; }
+
+.home-screen.active {
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+}
+#lobby-screen.active {
+  display: flex !important;
+}

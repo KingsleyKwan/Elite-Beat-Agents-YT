@@ -1,19 +1,22 @@
 /**
- * App wiring: auto BPM (upload / localhost helper / heuristic), difficulty,
- * fullscreen YT underlay, A2HS gate. No in-browser YT download on Pages.
+ * Phone-minimal UI: big URL + Paste + Go; tools in ⋯ sheet.
  */
 (function () {
   const $ = (sel) => document.querySelector(sel);
+  const appEl = $("#app");
+  const homeUrl = $("#home-url");
   const urlInput = $("#url-input");
   const bpmInput = $("#bpm-input");
   const offsetInput = $("#offset-input");
   const subdivSelect = $("#subdiv-select");
   const difficultySelect = $("#difficulty-select");
+  const difficultyLobby = $("#difficulty-select-lobby");
   const latencyInput = $("#latency-input");
   const latencyVal = $("#latency-val");
-  const beatHint = $("#beat-hint");
   const autoBpmLabel = $("#auto-bpm-label");
-  const advancedPanel = $("#advanced-panel");
+  const beatHint = $("#beat-hint");
+  const btnGo = $("#btn-go");
+  const btnPaste = $("#btn-paste");
   const btnLoad = $("#btn-load");
   const btnSample = $("#btn-sample");
   const btnPlay = $("#btn-play");
@@ -21,17 +24,12 @@
   const btnRegen = $("#btn-regen");
   const btnRetry = $("#btn-retry");
   const btnHome = $("#btn-home");
+  const btnHomeMini = $("#btn-home-mini");
+  const btnMore = $("#btn-more");
   const btnCalibrate = $("#btn-calibrate");
-  const btnAdvanced = $("#btn-advanced");
   const btnLocalHelper = $("#btn-local-helper");
   const btnBeatTap = $("#btn-beat-tap");
   const btnBeatTapReady = $("#btn-beat-tap-ready");
-  const beatTapOverlay = $("#beat-tap-overlay");
-  const beatTapMsg = $("#beat-tap-msg");
-  const beatTapCount = $("#beat-tap-count");
-  const btnTapPad = $("#btn-tap-pad");
-  const btnBeatTapDone = $("#btn-beat-tap-done");
-  const btnBeatTapCancel = $("#btn-beat-tap-cancel");
   const audioFile = $("#audio-file");
   const audioFileReady = $("#audio-file-ready");
   const lifeFill = $("#life-fill");
@@ -42,12 +40,21 @@
   const breakText = $("#break-text");
   const resultScreen = $("#result-screen");
   const readyScreen = $("#ready-screen");
+  const lobbyScreen = $("#lobby-screen");
   const calibrateScreen = $("#calibrate-screen");
   const a2hsGate = $("#a2hs-gate");
+  const moreSheet = $("#more-sheet");
+  const topbar = $("#topbar");
+  const gameHud = $("#game-hud");
   const resultTitle = $("#result-title");
   const toast = $("#toast");
   const canvas = $("#playfield");
-  const appEl = $("#app");
+  const beatTapOverlay = $("#beat-tap-overlay");
+  const beatTapMsg = $("#beat-tap-msg");
+  const beatTapCount = $("#beat-tap-count");
+  const btnTapPad = $("#btn-tap-pad");
+  const btnBeatTapDone = $("#btn-beat-tap-done");
+  const btnBeatTapCancel = $("#btn-beat-tap-cancel");
 
   let chart = null;
   let raf = 0;
@@ -57,15 +64,12 @@
   let audioDetectMeta = null;
   let ytEnded = false;
   let autoMeta = { bpm: 120, offset: 0, source: "default", label: "自動" };
-  let advancedOpen = false;
-
   const LATENCY_KEY = "ouendan-yt-latency-ms";
   const A2HS_SKIP_KEY = "ouendan-yt-a2hs-skip";
-  const HELPER_URL = "http://127.0.0.1:8767"; // 進階／電腦 only；電話唔使
+  const HELPER_URL = "http://127.0.0.1:8767";
   const BEAT_TAP_TARGET = 8;
   let beatTapTimes = [];
   let beatTapActive = false;
-
   const DIFF = ChartUtil.DIFFICULTY_PRESETS;
 
   function isStandalone() {
@@ -75,6 +79,45 @@
     );
   }
 
+  function setMode(mode) {
+    appEl.classList.remove("mode-home", "mode-lobby", "mode-play");
+    appEl.classList.add("mode-" + mode);
+    if (mode === "home") {
+      topbar.hidden = true;
+      gameHud.hidden = true;
+      readyScreen.classList.add("active");
+      lobbyScreen.classList.remove("active");
+      resultScreen.classList.remove("active");
+    } else if (mode === "lobby") {
+      topbar.hidden = false;
+      gameHud.hidden = true;
+      readyScreen.classList.remove("active");
+      lobbyScreen.classList.add("active");
+      resultScreen.classList.remove("active");
+      btnPlay.disabled = !chart;
+    } else if (mode === "play") {
+      topbar.hidden = false;
+      gameHud.hidden = false;
+      readyScreen.classList.remove("active");
+      lobbyScreen.classList.remove("active");
+      resultScreen.classList.remove("active");
+    }
+  }
+
+  function syncUrlFromHome() {
+    if (homeUrl && urlInput) urlInput.value = homeUrl.value.trim();
+  }
+  function syncHomeFromUrl() {
+    if (homeUrl && urlInput) homeUrl.value = urlInput.value;
+  }
+
+  function syncDifficulty(from) {
+    const v = from.value;
+    if (difficultySelect) difficultySelect.value = v;
+    if (difficultyLobby) difficultyLobby.value = v;
+    applyDifficultyToHidden();
+  }
+
   function loadStoredLatency() {
     const v = parseInt(localStorage.getItem(LATENCY_KEY) || "40", 10);
     const ms = Number.isFinite(v) ? Math.max(0, Math.min(200, v)) : 40;
@@ -82,7 +125,6 @@
     if (latencyVal) latencyVal.textContent = String(ms);
     return ms;
   }
-
   function applyLatency(ms) {
     ms = Math.max(0, Math.min(200, Number(ms) || 0));
     if (latencyInput) latencyInput.value = String(ms);
@@ -92,22 +134,21 @@
   }
 
   function difficultyOpts() {
-    const key = difficultySelect.value || "normal";
+    const key = (difficultySelect && difficultySelect.value) || "normal";
     const p = DIFF[key] || DIFF.normal;
     return { density: p.density, subdivision: p.subdivision, difficulty: key };
   }
-
+  function applyDifficultyToHidden() {
+    const d = difficultyOpts();
+    if (subdivSelect) subdivSelect.value = String(d.subdivision);
+  }
   function setAutoBadge(meta) {
     autoMeta = meta || autoMeta;
     if (bpmInput) bpmInput.value = String(autoMeta.bpm);
     if (offsetInput) offsetInput.value = String(autoMeta.offset);
-    autoBpmLabel.textContent =
-      autoMeta.bpm + (autoMeta.label ? " · " + autoMeta.label : "");
-  }
-
-  function applyDifficultyToHidden() {
-    const d = difficultyOpts();
-    subdivSelect.value = String(d.subdivision);
+    if (autoBpmLabel)
+      autoBpmLabel.textContent =
+        autoMeta.bpm + (autoMeta.label ? " · " + autoMeta.label : "");
   }
 
   const game = GameEngine.createGame(canvas, {
@@ -125,11 +166,10 @@
       const labels = { 300: "PERFECT", 100: "GREAT", 50: "GOOD", 0: "MISS" };
       const colors = { 300: "#06d6a0", 100: "#4cc9f0", 50: "#ffd166", 0: "#ef476f" };
       const el = (info && info.earlyLate) || "";
-      const elColor =
-        el === "EARLY" ? "#4cc9f0" : el === "LATE" ? "#ff8fab" : el === "OK" ? "#94a3b8" : "";
+      const elColor = el === "EARLY" ? "#4cc9f0" : el === "LATE" ? "#ff8fab" : "";
       judgeEl.innerHTML =
         "<div>" +
-        (labels[grade] || String(grade)) +
+        (labels[grade] || "") +
         "</div>" +
         (el && el !== "MISS" && el !== "OK"
           ? '<div class="el-tag" style="color:' + elColor + '">' + el + "</div>"
@@ -141,11 +181,9 @@
     },
     onBreak: (kind) => {
       breakPanel.className = "break-panel active " + kind;
-      if (kind === "o") breakText.textContent = "O！応援成功";
-      else if (kind === "x") breakText.textContent = "X…危險！";
-      else breakText.textContent = "加油…繼續應援！";
+      breakText.textContent = kind === "o" ? "O！" : kind === "x" ? "X…" : "加油！";
       clearTimeout(breakTimer);
-      breakTimer = setTimeout(() => breakPanel.classList.remove("active"), 1400);
+      breakTimer = setTimeout(() => breakPanel.classList.remove("active"), 1200);
     },
     onFail: (s) => {
       cancelAnimationFrame(raf);
@@ -163,10 +201,11 @@
 
   applyLatency(loadStoredLatency());
   applyDifficultyToHidden();
-  setAutoBadge({ bpm: 120, offset: 0, source: "default", label: "自動" });
+  setAutoBadge(autoMeta);
 
   function setPlayingUi(on) {
     appEl.classList.toggle("playing", !!on);
+    if (on) setMode("play");
     requestAnimationFrame(() => {
       game.resize();
       YTBridge.applyCoverSize && YTBridge.applyCoverSize();
@@ -176,7 +215,7 @@
   function showToast(msg) {
     toast.textContent = msg;
     toast.classList.add("show");
-    setTimeout(() => toast.classList.remove("show"), 2800);
+    setTimeout(() => toast.classList.remove("show"), 2400);
   }
 
   function readGenOpts(extra) {
@@ -203,21 +242,24 @@
     if (!c) return;
     if (c.bpm != null) {
       bpmInput.value = String(c.bpm);
-      autoBpmLabel.textContent = c.bpm + (c.chartSource ? " · " + c.chartSource : "");
+      if (autoBpmLabel) autoBpmLabel.textContent = String(c.bpm);
     }
     if (c.offset != null) offsetInput.value = String(c.offset);
     if (c.subdivision) subdivSelect.value = String(c.subdivision);
-    // map density back to difficulty select
-    if (c.density === "sparse") difficultySelect.value = "easy";
-    else if (c.density === "dense") difficultySelect.value = "hard";
-    else difficultySelect.value = "normal";
+    const diff =
+      c.density === "sparse" ? "easy" : c.density === "dense" ? "hard" : "normal";
+    if (difficultySelect) difficultySelect.value = diff;
+    if (difficultyLobby) difficultyLobby.value = diff;
     if (c.durationHint) lastDurationHint = c.durationHint;
   }
 
   function showResult(cleared, s) {
-    resultScreen.classList.add("active");
+    setPlayingUi(false);
+    topbar.hidden = false;
+    gameHud.hidden = true;
     readyScreen.classList.remove("active");
-    calibrateScreen.classList.remove("active");
+    lobbyScreen.classList.remove("active");
+    resultScreen.classList.add("active");
     resultTitle.textContent = cleared ? "CLEAR！" : "FAILED…";
     resultTitle.style.color = cleared ? "#06d6a0" : "#ef476f";
     $("#stat-300").textContent = s.counts[300];
@@ -231,6 +273,7 @@
   function hideOverlays() {
     resultScreen.classList.remove("active");
     readyScreen.classList.remove("active");
+    lobbyScreen.classList.remove("active");
     calibrateScreen.classList.remove("active");
   }
 
@@ -250,14 +293,8 @@
       const t0 = performance.now();
       (function poll() {
         const d = YTBridge.getDuration();
-        if (d && d > 0 && isFinite(d)) {
-          resolve(d);
-          return;
-        }
-        if (performance.now() - t0 > maxMs) {
-          resolve(0);
-          return;
-        }
+        if (d && d > 0 && isFinite(d)) return resolve(d);
+        if (performance.now() - t0 > maxMs) return resolve(0);
         setTimeout(poll, 150);
       })();
     });
@@ -270,7 +307,7 @@
         btnPlay.disabled = false;
         YTBridge.applyCoverSize && YTBridge.applyCoverSize();
       },
-      onError: () => showToast("此影片可能無法嵌入，請換另一個 videoId"),
+      onError: () => showToast("影片無法播放，換一條連結"),
       onStateChange: (e) => {
         if (e.data === 0) {
           ytEnded = true;
@@ -288,15 +325,13 @@
     return clamped;
   }
 
-  /** Resolve BPM without downloading YT in the browser. */
   async function resolveAutoBeat(videoId, duration) {
-    // Prefer last upload / helper result if for same session
     if (audioDetectMeta && audioDetectMeta.bpm) {
       return {
         bpm: audioDetectMeta.bpm,
         offset: audioDetectMeta.offset || 0,
         source: audioDetectMeta.source || "webaudio",
-        label: audioDetectMeta.source === "localhost-ytdlp" ? "本機yt-dlp" : "音訊偵測",
+        label: audioDetectMeta.label || "偵測",
       };
     }
     let title = "";
@@ -313,64 +348,40 @@
 
   async function loadChart(c) {
     chart = ChartUtil.normalizeChart(c);
-    if (!chart) {
-      showToast("譜面無效");
-      return;
-    }
-    if (!chart.videoId) {
-      showToast("譜面缺少 videoId");
+    if (!chart || !chart.videoId) {
+      showToast("載入失敗");
       return;
     }
     lastVideoId = chart.videoId;
     if (chart.durationHint) lastDurationHint = chart.durationHint;
     syncUiFromChart(chart);
     urlInput.value = "https://www.youtube.com/watch?v=" + chart.videoId;
+    syncHomeFromUrl();
     btnPlay.disabled = true;
     await ensurePlayer(chart.videoId);
     const dur = await waitDuration(4500);
     if (dur > 0) {
       const before = chart.markers.length;
       chart = applyDurationClamp(chart, dur);
-      if (chart.markers.length < before) {
-        showToast("已按片長夾短譜面（" + before + "→" + chart.markers.length + "）");
-      }
+      if (chart.markers.length < before) showToast("已按片長調整");
     }
     if (!chart.markers.length) {
-      showToast("片長過短或譜面全被夾掉");
-      btnPlay.disabled = true;
+      showToast("譜面太短");
       return;
     }
     game.resetRuntime(chart);
     game.resize();
     game.draw(0);
-    hideOverlays();
-    readyScreen.classList.add("active");
     const diffLabel = (DIFF[difficultySelect.value] || DIFF.normal).label;
-    $("#ready-title").textContent = chart.title || chart.videoId;
-    $("#ready-meta").textContent =
-      "標記 " +
-      chart.markers.length +
-      "　難度 " +
-      diffLabel +
-      "　BPM " +
-      chart.bpm +
-      "（" +
-      (autoMeta.label || "自動") +
-      "）　延遲 " +
-      game.getDeviceLatencyMs() +
-      "ms";
-    beatHint.textContent =
-      "個人學習｜自動 BPM " +
-      chart.bpm +
-      "｜難度 " +
-      diffLabel +
-      "｜電話：上傳音訊或跟拍校准；唔使電腦";
+    $("#ready-title").textContent = chart.title || "準備好";
+    $("#ready-meta").textContent = diffLabel + " · " + chart.markers.length + " 標記";
+    setMode("lobby");
     btnPlay.disabled = false;
   }
 
   async function buildAndLoad(videoId) {
     lastVideoId = videoId;
-    showToast("載入中（自動估 BPM）…");
+    showToast("載入中…");
     btnPlay.disabled = true;
     await ensurePlayer(videoId);
     const dur = await waitDuration(4500);
@@ -380,54 +391,68 @@
     const opts = readGenOpts({
       durationHint: lastDurationHint,
       chartSource: guessed.source,
-      title: "Auto — " + videoId,
+      title: videoId,
     });
     let c = ChartUtil.autoGenerateChart(videoId, opts);
     if (dur > 0) c = ChartUtil.clampChartToDuration(c, dur, 0.4);
     await loadChart(c);
-    showToast("已自動產譜 BPM " + opts.bpm + "（" + guessed.label + "）· 難度已套用");
   }
 
-  async function loadFromUrlInput() {
-    const id = ChartUtil.parseVideoId(urlInput.value);
+  async function goFromHome() {
+    syncUrlFromHome();
+    const id = ChartUtil.parseVideoId(urlInput.value || homeUrl.value);
     if (!id) {
-      showToast("請貼上有效 YouTube URL");
+      showToast("請貼上 YouTube 連結");
+      homeUrl && homeUrl.focus();
       return;
     }
     await buildAndLoad(id);
   }
 
+  async function pasteUrl() {
+    try {
+      if (!navigator.clipboard || !navigator.clipboard.readText) {
+        showToast("請長按輸入框貼上");
+        homeUrl && homeUrl.focus();
+        return;
+      }
+      const text = (await navigator.clipboard.readText()).trim();
+      if (!text) {
+        showToast("剪貼簿係空");
+        return;
+      }
+      homeUrl.value = text;
+      urlInput.value = text;
+      showToast("已貼上");
+      // auto-go if looks like YT
+      if (ChartUtil.parseVideoId(text)) {
+        await goFromHome();
+      }
+    } catch (err) {
+      console.warn(err);
+      showToast("無法讀取剪貼簿，請長按輸入框貼上");
+      homeUrl && homeUrl.focus();
+    }
+  }
+
   async function regenChart() {
     const id = ChartUtil.parseVideoId(urlInput.value) || lastVideoId || (chart && chart.videoId);
-    if (!id) {
-      showToast("請先 Load YouTube URL");
-      return;
-    }
+    if (!id) return showToast("未有影片");
     const dur = YTBridge.getDuration();
     if (dur > 0) lastDurationHint = dur;
-    const opts = readGenOpts({
-      durationHint: lastDurationHint,
-      title: "Auto — " + id,
-    });
-    let c = ChartUtil.autoGenerateChart(id, opts);
+    let c = ChartUtil.autoGenerateChart(id, readGenOpts({ durationHint: lastDurationHint }));
     if (lastDurationHint > 0) c = ChartUtil.clampChartToDuration(c, lastDurationHint, 0.4);
     await loadChart(c);
-    showToast("已 Regen（難度／自動 BPM）");
   }
 
   async function loadSample() {
+    closeMore();
     try {
       const res = await fetch("sample-chart.json");
       const json = await res.json();
-      setAutoBadge({
-        bpm: json.bpm || 100,
-        offset: json.offset || 0,
-        source: "sample",
-        label: "Sample",
-      });
+      setAutoBadge({ bpm: json.bpm || 100, offset: json.offset || 0, source: "sample", label: "Sample" });
       await loadChart(json);
-      showToast("已載入 Sample");
-    } catch (e) {
+    } catch (_) {
       await buildAndLoad("jNQXAC9IVRw");
     }
   }
@@ -436,30 +461,21 @@
     const file = ev.target.files && ev.target.files[0];
     ev.target.value = "";
     if (!file) return;
-    showToast("分析電話音訊檔（唔下載 YT）…");
+    closeMore();
+    showToast("分析音訊…");
     try {
       const meta = await BeatDetect.analyzeFile(file);
-      audioDetectMeta = Object.assign({}, meta, { source: "webaudio" });
-      setAutoBadge({
-        bpm: meta.bpm,
-        offset: meta.offset,
-        source: "webaudio",
-        label: "音訊偵測",
-      });
+      audioDetectMeta = Object.assign({}, meta, { source: "webaudio", label: "音訊" });
+      setAutoBadge({ bpm: meta.bpm, offset: meta.offset, source: "webaudio", label: "音訊" });
       lastDurationHint = meta.duration || lastDurationHint;
-      const id = ChartUtil.parseVideoId(urlInput.value) || lastVideoId;
-      if (id) {
-        await buildAndLoad(id);
-        showToast("已用上傳音訊對拍；播放仍用 YT 畫面");
-      } else {
-        showToast("已得 BPM — 請貼同一首歌 YT 再 Load");
-      }
+      const id = ChartUtil.parseVideoId(urlInput.value || homeUrl.value) || lastVideoId;
+      if (id) await buildAndLoad(id);
+      else showToast("請先貼 YouTube 連結");
     } catch (err) {
       showToast(String(err.message || err));
     }
   }
 
-  
   function estimateBpmFromTaps(times) {
     if (!times || times.length < 4) return null;
     const intervals = [];
@@ -478,30 +494,24 @@
     while (bpm > 175 && bpm / 2 >= 70) bpm /= 2;
     bpm = Math.round(bpm * 10) / 10;
     const beat = 60 / bpm;
-    let off = times[0] % beat;
-    if (off > beat / 2) off -= beat;
-    // refine offset with all taps
     let phase = 0;
     for (const t of times) {
       let p = t % beat;
       if (p > beat / 2) p -= beat;
       phase += p;
     }
-    off = phase / times.length;
     return {
       bpm: bpm,
-      offset: Math.round(off * 1000) / 1000,
+      offset: Math.round((phase / times.length) * 1000) / 1000,
       source: "beat-tap",
       label: "跟拍",
     };
   }
 
   async function startBeatTap() {
-    const id = ChartUtil.parseVideoId(urlInput.value) || lastVideoId || (chart && chart.videoId);
-    if (!id) {
-      showToast("請先貼 YouTube URL 並 Load");
-      return;
-    }
+    closeMore();
+    const id = ChartUtil.parseVideoId(urlInput.value || homeUrl.value) || lastVideoId || (chart && chart.videoId);
+    if (!id) return showToast("請先貼連結並開始");
     if (!YTBridge.player) {
       await ensurePlayer(id);
       await waitDuration(3000);
@@ -509,35 +519,22 @@
     beatTapTimes = [];
     beatTapActive = true;
     beatTapCount.textContent = "0 / " + BEAT_TAP_TARGET;
-    beatTapMsg.textContent = "跟住音樂拍子撳大掣（建議 6–8 下）";
+    beatTapMsg.textContent = "跟拍子撳大掣";
     btnBeatTapDone.disabled = true;
     beatTapOverlay.hidden = false;
-    readyScreen.classList.remove("active");
-    // Preview play for tapping (not full game)
-    ytEnded = false;
-    YTBridge.seek(Math.max(0, (YTBridge.getTime() || 0) < 1 ? 0 : YTBridge.getTime()));
+    lobbyScreen.classList.remove("active");
     YTBridge.play();
-    showToast("跟拍中：聽到拍就撳");
   }
-
   function onBeatTapPad() {
     if (!beatTapActive) return;
     const t = YTBridge.getTime();
     if (!(t >= 0)) return;
-    // debounce double taps < 120ms
     if (beatTapTimes.length && t - beatTapTimes[beatTapTimes.length - 1] < 0.12) return;
     beatTapTimes.push(t);
     beatTapCount.textContent = beatTapTimes.length + " / " + BEAT_TAP_TARGET;
-    beatTapMsg.textContent =
-      beatTapTimes.length >= 4
-        ? "夠用啦，可再撳或按「完成並產譜」"
-        : "繼續跟拍…（至少 4 下）";
     if (beatTapTimes.length >= 4) btnBeatTapDone.disabled = false;
-    if (beatTapTimes.length >= BEAT_TAP_TARGET) {
-      finishBeatTap();
-    }
+    if (beatTapTimes.length >= BEAT_TAP_TARGET) finishBeatTap();
   }
-
   async function finishBeatTap() {
     if (!beatTapActive) return;
     beatTapActive = false;
@@ -545,70 +542,42 @@
     beatTapOverlay.hidden = true;
     YTBridge.pause();
     if (!est) {
-      showToast("拍數唔夠或太亂，請再試跟拍校准");
-      if (chart) readyScreen.classList.add("active");
+      showToast("再試多次跟拍");
+      setMode("lobby");
       return;
     }
     audioDetectMeta = est;
     setAutoBadge(est);
-    const id = ChartUtil.parseVideoId(urlInput.value) || lastVideoId || (chart && chart.videoId);
+    const id = lastVideoId || (chart && chart.videoId);
     if (id) {
       await buildAndLoad(id);
-      showToast("跟拍完成 BPM " + est.bpm + " Offset " + est.offset);
-    } else {
-      showToast("跟拍得 BPM " + est.bpm + " — 請 Load URL");
-      readyScreen.classList.add("active");
+      showToast("BPM " + est.bpm);
     }
   }
-
   function cancelBeatTap() {
     beatTapActive = false;
-    beatTapTimes = [];
     beatTapOverlay.hidden = true;
     YTBridge.pause();
-    if (chart) readyScreen.classList.add("active");
+    if (chart) setMode("lobby");
   }
 
   async function runLocalHelper() {
     const id = ChartUtil.parseVideoId(urlInput.value) || lastVideoId;
-    if (!id) {
-      showToast("請先貼 YouTube URL");
-      return;
-    }
-    showToast("（進階）呼叫電腦 127.0.0.1 — 電話請改用上傳／跟拍…");
+    if (!id) return;
     try {
-      const res = await fetch(HELPER_URL + "/analyze?v=" + encodeURIComponent(id), {
-        mode: "cors",
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.error || "HTTP " + res.status);
-      }
+      const res = await fetch(HELPER_URL + "/analyze?v=" + encodeURIComponent(id));
       const meta = await res.json();
-      if (!meta.ok) throw new Error(meta.error || "helper failed");
+      if (!meta.ok) throw new Error(meta.error || "fail");
       audioDetectMeta = meta;
-      setAutoBadge({
-        bpm: meta.bpm,
-        offset: meta.offset,
-        source: "localhost-ytdlp",
-        label: "本機yt-dlp",
-      });
-      if (meta.duration) lastDurationHint = meta.duration;
+      setAutoBadge({ bpm: meta.bpm, offset: meta.offset, source: "localhost-ytdlp", label: "PC" });
       await buildAndLoad(id);
-      showToast("本機 yt-dlp 對拍完成 BPM " + meta.bpm + "（個人學習）");
-    } catch (err) {
-      console.warn(err);
-      showToast(
-        "電話唔使電腦伺服器。請用「上傳音訊」或「跟拍校准」。（純網頁無法下載 YT）"
-      );
+    } catch (_) {
+      showToast("請用上傳或跟拍");
     }
   }
 
   function startPlay() {
-    if (!chart || !chart.videoId) {
-      showToast("需要 YouTube videoId");
-      return;
-    }
+    if (!chart || !chart.videoId) return showToast("請先開始");
     ytEnded = false;
     hideOverlays();
     setPlayingUi(true);
@@ -628,26 +597,40 @@
   }
 
   async function copyShare() {
-    if (!chart || !chart.videoId) {
-      showToast("尚未載入譜面");
-      return;
-    }
+    closeMore();
+    if (!chart || !chart.videoId) return showToast("未有譜");
     const url = ChartUtil.buildShareUrl(chart);
     try {
       await navigator.clipboard.writeText(url);
-      showToast("已複製分享連結（注意：github.io 往往公開）");
+      showToast("已複製");
     } catch (_) {
-      window.prompt("複製：", url);
+      window.prompt("複製", url);
     }
   }
 
-  // --- calibrate ---
+  function goHome() {
+    game.stop();
+    cancelAnimationFrame(raf);
+    YTBridge.pause();
+    appEl.classList.remove("playing");
+    setMode("home");
+    homeUrl && homeUrl.focus();
+  }
+
+  function openMore() {
+    moreSheet.hidden = false;
+  }
+  function closeMore() {
+    moreSheet.hidden = true;
+  }
+
+  // latency flash calibrate
   let calBusy = false;
   function openCalibrate() {
+    closeMore();
     calibrateScreen.classList.add("active");
-    readyScreen.classList.remove("active");
-    $("#calibrate-msg").textContent = "跟住圓圈閃光撳畫面（共 4 次）";
-    $("#calibrate-flash").classList.remove("pulse");
+    lobbyScreen.classList.remove("active");
+    $("#calibrate-msg").textContent = "跟閃光撳 4 次";
   }
   function runCalibrate() {
     if (calBusy) return;
@@ -663,7 +646,6 @@
       deltas.push(performance.now() - expected);
       listening = false;
       flash.classList.remove("pulse");
-      msg.textContent = "已記錄 " + deltas.length + "/4";
     }
     calibrateScreen.addEventListener("pointerdown", onTap);
     function beat() {
@@ -672,28 +654,25 @@
         calBusy = false;
         if (deltas.length >= 2) {
           const avg = deltas.reduce((a, b) => a + b, 0) / deltas.length;
-          const ms = Math.max(0, Math.min(200, Math.round(avg)));
-          applyLatency(ms);
-          showToast("校准完成：延遲 " + ms + "ms");
+          applyLatency(Math.max(0, Math.min(200, Math.round(avg))));
+          showToast("完成");
         }
-        setTimeout(() => {
-          calibrateScreen.classList.remove("active");
-          if (chart) readyScreen.classList.add("active");
-        }, 600);
+        calibrateScreen.classList.remove("active");
+        if (chart) setMode("lobby");
         return;
       }
-      i += 1;
+      i++;
       expected = performance.now();
       listening = true;
       flash.classList.add("pulse");
-      msg.textContent = "撳！（" + i + "/4）";
+      msg.textContent = i + "/4";
       setTimeout(() => flash.classList.remove("pulse"), 120);
       setTimeout(beat, 700);
     }
     setTimeout(beat, 400);
   }
 
-  // --- A2HS ---
+  // A2HS
   let deferredPrompt = null;
   window.addEventListener("beforeinstallprompt", (e) => {
     e.preventDefault();
@@ -701,14 +680,15 @@
     const btn = $("#btn-a2hs-install");
     if (btn) btn.hidden = false;
   });
-
   function setupA2hsGate() {
     if (isStandalone() || localStorage.getItem(A2HS_SKIP_KEY) === "1") {
       a2hsGate.hidden = true;
       return;
     }
     const ua = navigator.userAgent || "";
-    const isIOS = /iPad|iPhone|iPod/.test(ua) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+    const isIOS =
+      /iPad|iPhone|iPod/.test(ua) ||
+      (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
     const isAndroid = /Android/i.test(ua);
     $("#a2hs-ios").hidden = !isIOS;
     $("#a2hs-android").hidden = !isAndroid;
@@ -716,86 +696,103 @@
     a2hsGate.hidden = false;
     a2hsGate.classList.add("active");
   }
-
   $("#btn-a2hs-continue").addEventListener("click", () => {
     localStorage.setItem(A2HS_SKIP_KEY, "1");
     a2hsGate.hidden = true;
     a2hsGate.classList.remove("active");
   });
   $("#btn-a2hs-install").addEventListener("click", async () => {
-    if (!deferredPrompt) {
-      showToast("請用瀏覽器選單「加到主畫面／安裝」");
-      return;
-    }
+    if (!deferredPrompt) return showToast("用瀏覽器選單加入");
     deferredPrompt.prompt();
     await deferredPrompt.userChoice;
     deferredPrompt = null;
     a2hsGate.hidden = true;
-    a2hsGate.classList.remove("active");
   });
-
   if ("serviceWorker" in navigator) {
     navigator.serviceWorker.register("./sw.js").catch(() => {});
   }
 
-  btnLoad.addEventListener("click", loadFromUrlInput);
-  btnSample.addEventListener("click", loadSample);
+  // Events
+  btnPaste.addEventListener("click", pasteUrl);
+  btnGo.addEventListener("click", goFromHome);
+  homeUrl.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") goFromHome();
+  });
+  // Best-effort: some browsers fire paste event
+  homeUrl.addEventListener("paste", () => {
+    setTimeout(() => {
+      syncUrlFromHome();
+      if (ChartUtil.parseVideoId(homeUrl.value)) {
+        /* user can tap 開始; don't auto to avoid surprise */
+      }
+    }, 0);
+  });
+
   btnPlay.addEventListener("click", startPlay);
-  btnRegen.addEventListener("click", regenChart);
   $("#btn-ready-play").addEventListener("click", startPlay);
-  btnShare.addEventListener("click", copyShare);
+  btnRetry.addEventListener("click", () => chart && startPlay());
+  btnHome.addEventListener("click", goHome);
+  btnHomeMini.addEventListener("click", goHome);
+  btnMore.addEventListener("click", openMore);
+  $("#more-close").addEventListener("click", closeMore);
+  $("#more-backdrop").addEventListener("click", closeMore);
+  $("#btn-more-sample").addEventListener("click", loadSample);
+  $("#btn-more-share").addEventListener("click", copyShare);
+  $("#btn-more-regen").addEventListener("click", () => {
+    closeMore();
+    regenChart();
+  });
+  $("#btn-more-latency").addEventListener("click", openCalibrate);
   $("#btn-result-share").addEventListener("click", copyShare);
-  audioFile.addEventListener("change", onAudioSelected);
+
+  if (audioFile) audioFile.addEventListener("change", onAudioSelected);
   if (audioFileReady) audioFileReady.addEventListener("change", onAudioSelected);
-  if (btnLocalHelper) btnLocalHelper.addEventListener("click", runLocalHelper);
-  if (btnBeatTap) btnBeatTap.addEventListener("click", startBeatTap);
   if (btnBeatTapReady) btnBeatTapReady.addEventListener("click", startBeatTap);
-  if (btnTapPad) btnTapPad.addEventListener("pointerdown", (e) => { e.preventDefault(); onBeatTapPad(); });
+  if (btnBeatTap) btnBeatTap.addEventListener("click", startBeatTap);
+  if (btnTapPad)
+    btnTapPad.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      onBeatTapPad();
+    });
   if (btnBeatTapDone) btnBeatTapDone.addEventListener("click", finishBeatTap);
   if (btnBeatTapCancel) btnBeatTapCancel.addEventListener("click", cancelBeatTap);
-  if (latencyInput) latencyInput.addEventListener("input", () => applyLatency(latencyInput.value));
+  if (btnLocalHelper) btnLocalHelper.addEventListener("click", runLocalHelper);
   if (btnCalibrate) btnCalibrate.addEventListener("click", openCalibrate);
   $("#btn-cal-start").addEventListener("click", runCalibrate);
   $("#btn-cal-cancel").addEventListener("click", () => {
     calibrateScreen.classList.remove("active");
-    if (chart) readyScreen.classList.add("active");
+    if (chart) setMode("lobby");
   });
-  btnAdvanced.addEventListener("click", () => {
-    advancedOpen = !advancedOpen;
-    advancedPanel.hidden = !advancedOpen;
-    btnAdvanced.textContent = advancedOpen ? "收起進階" : "進階";
-  });
-  difficultySelect.addEventListener("change", () => {
-    applyDifficultyToHidden();
-    if (lastVideoId || (chart && chart.videoId)) regenChart();
-  });
-  btnRetry.addEventListener("click", () => chart && startPlay());
-  btnHome.addEventListener("click", () => {
-    game.stop();
-    cancelAnimationFrame(raf);
-    YTBridge.pause();
-    setPlayingUi(false);
-    resultScreen.classList.remove("active");
-    readyScreen.classList.add("active");
-  });
-  urlInput.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") loadFromUrlInput();
-  });
+
+  if (difficultySelect)
+    difficultySelect.addEventListener("change", () => {
+      syncDifficulty(difficultySelect);
+      if (chart) regenChart();
+    });
+  if (difficultyLobby)
+    difficultyLobby.addEventListener("change", () => {
+      syncDifficulty(difficultyLobby);
+      if (chart) regenChart();
+    });
+
+  // legacy hidden aliases
+  if (btnLoad) btnLoad.addEventListener("click", goFromHome);
+  if (btnSample) btnSample.addEventListener("click", loadSample);
+  if (btnShare) btnShare.addEventListener("click", copyShare);
+  if (btnRegen) btnRegen.addEventListener("click", regenChart);
+
   window.addEventListener("resize", () => {
     game.resize();
     YTBridge.applyCoverSize && YTBridge.applyCoverSize();
   });
 
-  // boot
   game.resize();
   setupA2hsGate();
   const shared = ChartUtil.parseShareFromLocation();
   if (shared) {
-    loadChart(shared).then(() => showToast("已從分享連結載入"));
+    loadChart(shared);
   } else {
-    readyScreen.classList.add("active");
-    $("#ready-title").textContent = "貼上 YouTube → Load → Play";
-    $("#ready-meta").textContent = "電話專用｜揀難度即可｜上傳音訊或跟拍校准";
-    btnPlay.disabled = true;
+    setMode("home");
+    setTimeout(() => homeUrl && homeUrl.focus(), 300);
   }
 })();

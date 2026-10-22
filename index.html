@@ -11,103 +11,77 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
   <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png" />
-  <title>押忍！YouTube 応援団</title>
+  <title>応援団 YT</title>
   <link rel="stylesheet" href="css/app.css" />
 </head>
 <body>
   <div id="rotate-hint">
     <div class="icon">📱↻</div>
     <div><strong>請橫放手機</strong></div>
-    <div style="color:#94a3b8;font-size:0.9rem;">電話專用 · 請橫放遊玩</div>
   </div>
 
   <div id="a2hs-gate" class="screen gate" hidden>
     <div class="card gate-card">
-      <h2>請加到主畫面以全螢幕遊玩</h2>
-      <p>電話專用。加到主畫面先可以真正全螢幕，標記浮喺 MV 上面。</p>
-      <ol class="gate-steps">
-        <li>用手機 Safari／Chrome 打開本頁</li>
-        <li>跟下面指示「加到主畫面」</li>
-        <li>由主畫面圖示重新打開再玩</li>
-      </ol>
+      <h2>加到主畫面</h2>
+      <p>全螢幕更好玩。</p>
       <div class="gate-platform" id="a2hs-ios" hidden>
-        <p><strong>iPhone（Safari）</strong>：分享 <span class="kbd">□↑</span> →「加到主畫面」。</p>
+        <p>Safari：分享 →「加到主畫面」</p>
       </div>
       <div class="gate-platform" id="a2hs-android" hidden>
-        <p><strong>Android（Chrome）</strong>：選單 ⋮ →「安裝應用」／「加到主螢幕」。</p>
+        <p>Chrome：選單 →「加到主螢幕」</p>
       </div>
       <div class="gate-platform" id="a2hs-other">
-        <p>瀏覽器選單找「加到主畫面」。</p>
+        <p>瀏覽器選單 → 加到主畫面</p>
       </div>
       <div class="actions">
-        <button class="btn" id="btn-a2hs-install" type="button" hidden>安裝應用</button>
-        <button class="btn secondary" id="btn-a2hs-continue" type="button">稍後繼續</button>
+        <button class="btn" id="btn-a2hs-install" type="button" hidden>安裝</button>
+        <button class="btn secondary" id="btn-a2hs-continue" type="button">繼續</button>
       </div>
-      <p class="ready-tip">已由主畫面開啟會自動跳過。</p>
     </div>
   </div>
 
   <div id="yt-bg" aria-hidden="true">
-    <div id="yt-player">載入 YouTube…</div>
+    <div id="yt-player"></div>
   </div>
 
   <div id="app">
-    <header class="topbar">
-      <h1>応援団 YT</h1>
-      <span class="personal-tag">電話·個人學習</span>
-      <div class="grow">
-        <input id="url-input" type="url" inputmode="url" placeholder="貼上 YouTube URL…" autocomplete="off" />
-      </div>
-      <button class="btn" id="btn-load" type="button">Load</button>
-      <button class="btn secondary" id="btn-sample" type="button">Sample</button>
+    <!-- Minimal top chrome (hidden on home, shown after load) -->
+    <header class="topbar" id="topbar" hidden>
+      <button class="btn ghost btn-icon" id="btn-home-mini" type="button" title="返回">←</button>
+      <select id="difficulty-select" class="diff-mini" aria-label="難度">
+        <option value="easy">易</option>
+        <option value="normal" selected>正常</option>
+        <option value="hard">難</option>
+      </select>
       <button class="btn" id="btn-play" type="button" disabled>Play</button>
-      <button class="btn ghost" id="btn-share" type="button">Share</button>
+      <button class="btn ghost btn-icon" id="btn-more" type="button" title="更多">⋯</button>
     </header>
 
-    <div class="beatbar" id="beatbar">
-      <label class="bb-item bb-diff">難度
-        <select id="difficulty-select">
-          <option value="easy">易</option>
-          <option value="normal" selected>正常</option>
-          <option value="hard">難</option>
-        </select>
-      </label>
-      <span class="bb-auto" id="auto-badge">自動 BPM <strong id="auto-bpm-label">—</strong></span>
-
-      <label class="btn btn-touch-lg bb-upload" id="btn-audio-label" title="由電話「檔案／相片／音樂」揀同一首歌">
-        📤 上傳音訊自動對拍
-        <input id="audio-file" type="file" accept="audio/*,.mp3,.wav,.ogg,.m4a,.flac,video/*" hidden />
-      </label>
-      <button class="btn btn-touch-lg secondary" id="btn-beat-tap" type="button" title="播片時跟住拍子撳幾下估 BPM">🎵 跟拍校准</button>
-
-      <button class="btn ghost" id="btn-advanced" type="button">進階</button>
-      <button class="btn secondary" id="btn-regen" type="button">Regen</button>
-      <span class="bb-hint" id="beat-hint">電話：貼 URL → Load → 揀難度 → Play。想準拍：上傳音訊或跟拍校准（唔使電腦）。</span>
-
-      <div class="advanced-panel" id="advanced-panel" hidden>
-        <label class="bb-item">BPM <input id="bpm-input" type="number" min="60" max="220" step="0.5" value="120" /></label>
-        <label class="bb-item">Offset(s) <input id="offset-input" type="number" min="-5" max="30" step="0.01" value="0" /></label>
-        <label class="bb-item">拍子細分
-          <select id="subdiv-select">
-            <option value="1">1/1</option>
-            <option value="2" selected>1/2</option>
-            <option value="4">1/4</option>
-          </select>
-        </label>
-        <label class="bb-item">延遲
-          <input id="latency-input" type="range" min="0" max="200" step="5" value="40" />
-          <span id="latency-val">40</span>ms
-        </label>
-        <button class="btn ghost" id="btn-calibrate" type="button">觸控延遲校准</button>
-        <button class="btn ghost" id="btn-local-helper" type="button" title="需電腦 tools/server；電話唔使">電腦對拍（唔建議）</button>
-        <span class="bb-hint">進階先手改；電話正常唔使開。靜態網頁無法下載 YT 音訊。</span>
-      </div>
+    <!-- Hidden fields kept for JS compatibility -->
+    <div id="hidden-fields" hidden>
+      <input id="url-input" type="url" />
+      <input id="bpm-input" type="number" value="120" />
+      <input id="offset-input" type="number" value="0" />
+      <select id="subdiv-select"><option value="1">1</option><option value="2" selected>2</option><option value="4">4</option></select>
+      <input id="latency-input" type="range" min="0" max="200" step="5" value="40" />
+      <span id="latency-val">40</span>
+      <span id="auto-bpm-label">—</span>
+      <span id="beat-hint"></span>
+      <button id="btn-load" type="button"></button>
+      <button id="btn-sample" type="button"></button>
+      <button id="btn-share" type="button"></button>
+      <button id="btn-regen" type="button"></button>
+      <button id="btn-advanced" type="button"></button>
+      <button id="btn-calibrate" type="button"></button>
+      <button id="btn-local-helper" type="button"></button>
+      <button id="btn-beat-tap" type="button"></button>
+      <label id="btn-audio-label"><input id="audio-file" type="file" accept="audio/*,.mp3,.wav,.ogg,.m4a,.flac,video/*" /></label>
     </div>
 
     <div class="stage">
       <section class="play-pane">
         <canvas id="playfield"></canvas>
-        <div class="hud">
+        <div class="hud" id="game-hud" hidden>
           <div class="life-row">
             <span class="life-label">LIFE</span>
             <div class="life-track"><div class="life-fill" id="life-fill"></div></div>
@@ -120,40 +94,58 @@
         <div class="judgment-flash" id="judgment-flash"></div>
         <div class="break-panel" id="break-panel"><div class="bubble" id="break-text">O！</div></div>
 
-        <!-- In-play beat-tap overlay -->
         <div class="beat-tap-overlay" id="beat-tap-overlay" hidden>
           <div class="beat-tap-card">
-            <h3>跟拍校准</h3>
-            <p id="beat-tap-msg">影片播放中，跟住鼓點／拍子大力撳下面大掣（6–8 下）</p>
+            <h3>跟拍</h3>
+            <p id="beat-tap-msg">跟住拍子撳</p>
             <div class="beat-tap-count" id="beat-tap-count">0 / 8</div>
-            <button class="btn btn-tap-pad" id="btn-tap-pad" type="button">撳拍！</button>
+            <button class="btn btn-tap-pad" id="btn-tap-pad" type="button">撳！</button>
             <div class="actions">
-              <button class="btn secondary" id="btn-beat-tap-done" type="button" disabled>完成並產譜</button>
+              <button class="btn secondary" id="btn-beat-tap-done" type="button" disabled>完成</button>
               <button class="btn ghost" id="btn-beat-tap-cancel" type="button">取消</button>
             </div>
           </div>
         </div>
 
-        <div class="screen" id="ready-screen">
-          <div class="card">
-            <h2 id="ready-title">準備應援</h2>
-            <p id="ready-meta">貼 YouTube → Load → Play</p>
-            <p class="ready-tip" id="ready-tip">電話專用：唔使電腦。Load 後揀難度即可玩；想準拍請「上傳音訊」或「跟拍校准」。</p>
-            <div class="actions phone-actions">
-              <button class="btn btn-touch-lg" id="btn-ready-play" type="button">▶ Play</button>
-              <label class="btn btn-touch-lg secondary bb-upload">
-                📤 上傳音訊自動對拍
-                <input id="audio-file-ready" type="file" accept="audio/*,.mp3,.wav,.ogg,.m4a,.flac,video/*" hidden />
-              </label>
-              <button class="btn btn-touch-lg secondary" id="btn-beat-tap-ready" type="button">🎵 跟拍校准</button>
+        <!-- HOME: only big URL + Paste + Go -->
+        <div class="screen home-screen active" id="ready-screen">
+          <div class="home-card">
+            <input
+              id="home-url"
+              class="home-url"
+              type="url"
+              inputmode="url"
+              enterkeyhint="go"
+              autocomplete="off"
+              autocorrect="off"
+              spellcheck="false"
+              placeholder="YouTube 連結"
+            />
+            <div class="home-row">
+              <button class="btn btn-paste" id="btn-paste" type="button">貼上</button>
+              <button class="btn btn-go" id="btn-go" type="button">開始</button>
             </div>
+          </div>
+        </div>
+
+        <!-- After load: compact ready-to-play -->
+        <div class="screen" id="lobby-screen">
+          <div class="lobby-card">
+            <p class="lobby-title" id="ready-title">準備好</p>
+            <p class="lobby-meta" id="ready-meta"></p>
+            <select id="difficulty-select-lobby" class="diff-lobby" aria-label="難度">
+              <option value="easy">易</option>
+              <option value="normal" selected>正常</option>
+              <option value="hard">難</option>
+            </select>
+            <button class="btn btn-go" id="btn-ready-play" type="button">Play</button>
           </div>
         </div>
 
         <div class="screen" id="result-screen">
           <div class="card">
             <h2 id="result-title">CLEAR！</h2>
-            <p>分數 <strong id="stat-score">0</strong>　最大 Combo <strong id="stat-combo">0</strong></p>
+            <p>分數 <strong id="stat-score">0</strong>　Combo <strong id="stat-combo">0</strong></p>
             <div class="stats">
               <div><strong id="stat-300">0</strong>300</div>
               <div><strong id="stat-100">0</strong>100</div>
@@ -161,9 +153,9 @@
               <div><strong id="stat-0">0</strong>Miss</div>
             </div>
             <div class="actions">
-              <button class="btn" id="btn-retry" type="button">再來一次</button>
-              <button class="btn secondary" id="btn-result-share" type="button">Share</button>
-              <button class="btn ghost" id="btn-home" type="button">返回</button>
+              <button class="btn" id="btn-retry" type="button">再來</button>
+              <button class="btn secondary" id="btn-result-share" type="button">分享</button>
+              <button class="btn ghost" id="btn-home" type="button">主頁</button>
             </div>
           </div>
         </div>
@@ -171,10 +163,28 @@
     </div>
   </div>
 
+  <!-- ⋯ more sheet -->
+  <div class="sheet" id="more-sheet" hidden>
+    <div class="sheet-backdrop" id="more-backdrop"></div>
+    <div class="sheet-panel">
+      <h3>更多</h3>
+      <label class="sheet-btn bb-upload">
+        上傳音訊對拍
+        <input id="audio-file-ready" type="file" accept="audio/*,.mp3,.wav,.ogg,.m4a,.flac,video/*" hidden />
+      </label>
+      <button class="sheet-btn" id="btn-beat-tap-ready" type="button">跟拍校准</button>
+      <button class="sheet-btn" id="btn-more-sample" type="button">Sample</button>
+      <button class="sheet-btn" id="btn-more-share" type="button">分享連結</button>
+      <button class="sheet-btn" id="btn-more-regen" type="button">重新產譜</button>
+      <button class="sheet-btn" id="btn-more-latency" type="button">觸控延遲校准</button>
+      <button class="sheet-btn muted" id="more-close" type="button">關閉</button>
+    </div>
+  </div>
+
   <div class="screen" id="calibrate-screen">
     <div class="card">
-      <h2>觸控延遲校准</h2>
-      <p id="calibrate-msg">跟住圓圈閃光撳（共 4 次）</p>
+      <h2>延遲校准</h2>
+      <p id="calibrate-msg">跟閃光撳 4 次</p>
       <div id="calibrate-flash" class="cal-flash"></div>
       <div class="actions">
         <button class="btn" id="btn-cal-start" type="button">開始</button>
