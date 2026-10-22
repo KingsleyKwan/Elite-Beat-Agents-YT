@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <title>押忍！YouTube 応援団 — MVP</title>
+  <link rel="stylesheet" href="css/app.css" />
+</head>
+<body>
+  <div id="rotate-hint">
+    <div class="icon">📱↻</div>
+    <div><strong>請橫放手機</strong></div>
+    <div style="color:#94a3b8;font-size:0.9rem;">本遊戲僅支援橫向（landscape）遊玩</div>
+  </div>
+
+  <div id="app">
+    <header class="topbar">
+      <h1>応援団 YT</h1>
+      <div class="grow">
+        <input id="url-input" type="url" inputmode="url" placeholder="貼上 YouTube URL…" autocomplete="off" />
+      </div>
+      <button class="btn" id="btn-load" type="button">Load</button>
+      <button class="btn secondary" id="btn-sample" type="button">Sample</button>
+      <button class="btn" id="btn-play" type="button" disabled>Play</button>
+      <button class="btn ghost" id="btn-share" type="button">Share</button>
+    </header>
+
+    <div class="beatbar" id="beatbar">
+      <label class="bb-item">BPM <input id="bpm-input" type="number" min="60" max="220" step="0.5" value="120" /></label>
+      <label class="bb-item">Offset(s) <input id="offset-input" type="number" min="-5" max="30" step="0.01" value="0" /></label>
+      <label class="bb-item">拍子細分
+        <select id="subdiv-select">
+          <option value="1" selected>1/1 每拍</option>
+          <option value="2">1/2 半拍</option>
+          <option value="4">1/4 十六分</option>
+        </select>
+      </label>
+      <label class="bb-item">密度
+        <select id="density-select">
+          <option value="sparse">疏</option>
+          <option value="normal" selected>中</option>
+          <option value="dense">密</option>
+        </select>
+      </label>
+      <button class="btn secondary" id="btn-regen" type="button" title="用而家 BPM／Offset 重產譜">Regen</button>
+      <label class="btn ghost bb-upload" id="btn-audio-label">
+        上傳音訊偵測
+        <input id="audio-file" type="file" accept="audio/*,.mp3,.wav,.ogg,.m4a,.flac" hidden />
+      </label>
+      <span class="bb-hint" id="beat-hint">純 YT：用手填 BPM（唔下載音訊）。可選上傳 CC／本地音訊做 Web Audio 偵測。</span>
+    </div>
+
+    <div class="stage">
+      <aside class="yt-pane">
+        <div id="yt-player">載入 YouTube…</div>
+        <div class="yt-label">時鐘來源：IFrame getCurrentTime（不下載音訊）</div>
+      </aside>
+
+      <section class="play-pane">
+        <canvas id="playfield"></canvas>
+        <div class="hud">
+          <div class="life-row">
+            <span class="life-label">LIFE</span>
+            <div class="life-track"><div class="life-fill" id="life-fill"></div></div>
+          </div>
+          <div class="score-row">
+            <span>SCORE <strong id="score-val">0</strong></span>
+            <span>COMBO <strong id="combo-val">0</strong></span>
+          </div>
+        </div>
+        <div class="judgment-flash" id="judgment-flash"></div>
+        <div class="break-panel" id="break-panel"><div class="bubble" id="break-text">O！</div></div>
+
+        <div class="screen" id="ready-screen">
+          <div class="card">
+            <h2 id="ready-title">準備應援</h2>
+            <p id="ready-meta">載入譜面後按 Play</p>
+            <p class="ready-tip" id="ready-tip">提示：填 BPM／Offset 後按 Regen 可對齊節拍</p>
+            <div class="actions">
+              <button class="btn" id="btn-ready-play" type="button">Play</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="screen" id="result-screen">
+          <div class="card">
+            <h2 id="result-title">CLEAR！</h2>
+            <p>分數 <strong id="stat-score">0</strong>　最大 Combo <strong id="stat-combo">0</strong></p>
+            <div class="stats">
+              <div><strong id="stat-300">0</strong>300</div>
+              <div><strong id="stat-100">0</strong>100</div>
+              <div><strong id="stat-50">0</strong>50</div>
+              <div><strong id="stat-0">0</strong>Miss</div>
+            </div>
+            <div class="actions">
+              <button class="btn" id="btn-retry" type="button">再來一次</button>
+              <button class="btn secondary" id="btn-result-share" type="button">Share</button>
+              <button class="btn ghost" id="btn-home" type="button">返回</button>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script src="js/chart.js"></script>
+  <script src="js/beatdetect.js"></script>
+  <script src="js/yt.js"></script>
+  <script src="js/game.js"></script>
+  <script src="js/main.js"></script>
+</body>
+</html>
