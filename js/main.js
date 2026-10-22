@@ -828,3 +828,18 @@
   }
   showDisclaimerThenContinue(afterDisclaimer);
 })();
+
+/* longpress-guard */
+(function () {
+  const block = (e) => {
+    const app = document.getElementById("app");
+    if (app && app.classList.contains("playing")) e.preventDefault();
+  };
+  document.addEventListener("contextmenu", block, { capture: true });
+  document.addEventListener("selectstart", (e) => {
+    const t = e.target;
+    if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA")) return;
+    const app = document.getElementById("app");
+    if (app && app.classList.contains("playing")) e.preventDefault();
+  }, { capture: true });
+})();

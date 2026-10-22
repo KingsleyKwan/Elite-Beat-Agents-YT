@@ -576,6 +576,7 @@
 
     function onPointerDown(e) {
       if (!running) return;
+      e.preventDefault();
       const rect = canvas.getBoundingClientRect();
       const x = e.clientX - rect.left;
       const y = e.clientY - rect.top;
@@ -647,6 +648,10 @@
     canvas.addEventListener("pointermove", onPointerMove);
     canvas.addEventListener("pointerup", onPointerUp);
     canvas.addEventListener("pointercancel", onPointerUp);
+    // Block long-press select / iOS callout / Android context menu during play
+    canvas.addEventListener("contextmenu", (e) => e.preventDefault());
+    canvas.addEventListener("selectstart", (e) => e.preventDefault());
+    canvas.addEventListener("dragstart", (e) => e.preventDefault());
 
     function setDeviceLatencyMs(ms) {
       deviceLatencySec = (Number(ms) || 0) / 1000;
