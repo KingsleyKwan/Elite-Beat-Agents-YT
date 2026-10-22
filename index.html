@@ -43,6 +43,11 @@
           <option value="dense">密</option>
         </select>
       </label>
+      <label class="bb-item" title="裝置觸控／顯示延遲（同拍子 Offset 分開）">延遲
+        <input id="latency-input" type="range" min="0" max="200" step="5" value="40" />
+        <span id="latency-val">40</span>ms
+      </label>
+      <button class="btn ghost" id="btn-calibrate" type="button" title="跟住閃光撳四次估延遲">校准</button>
       <button class="btn secondary" id="btn-regen" type="button" title="用而家 BPM／Offset 重產譜">Regen</button>
       <label class="btn ghost bb-upload" id="btn-audio-label">
         上傳音訊偵測
@@ -54,7 +59,7 @@
     <div class="stage">
       <aside class="yt-pane">
         <div id="yt-player">載入 YouTube…</div>
-        <div class="yt-label">時鐘來源：IFrame getCurrentTime（不下載音訊）</div>
+        <div class="yt-label">時鐘：getCurrentTime（不下載音訊）· 已隱藏進度條以免拖動不同步</div>
       </aside>
 
       <section class="play-pane">
@@ -101,6 +106,18 @@
           </div>
         </div>
       </section>
+    </div>
+  </div>
+
+  <div class="screen" id="calibrate-screen">
+    <div class="card">
+      <h2>裝置延遲校准</h2>
+      <p id="calibrate-msg">跟住圓圈閃光撳畫面（共 4 次）</p>
+      <div id="calibrate-flash" class="cal-flash"></div>
+      <div class="actions">
+        <button class="btn" id="btn-cal-start" type="button">開始</button>
+        <button class="btn ghost" id="btn-cal-cancel" type="button">取消</button>
+      </div>
     </div>
   </div>
 

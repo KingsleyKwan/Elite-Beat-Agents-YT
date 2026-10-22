@@ -338,3 +338,54 @@ html, body {
   color: #64748b !important;
   margin-bottom: 0.6rem !important;
 }
+
+/* Playing: collapse beatbar for playfield height */
+#app.playing .beatbar {
+  max-height: 0;
+  opacity: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+  overflow: hidden;
+  border-bottom-width: 0;
+  pointer-events: none;
+  transition: max-height 0.2s ease, opacity 0.15s ease, padding 0.2s ease;
+}
+.beatbar {
+  max-height: 120px;
+  transition: max-height 0.2s ease, opacity 0.15s ease;
+}
+.beatbar input[type="range"] {
+  width: 72px;
+  vertical-align: middle;
+}
+#latency-val {
+  display: inline-block;
+  min-width: 1.6rem;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.cal-flash {
+  width: 88px;
+  height: 88px;
+  margin: 0.75rem auto;
+  border-radius: 50%;
+  background: #334155;
+  border: 4px solid #64748b;
+  transition: background 0.05s, transform 0.05s;
+}
+.cal-flash.pulse {
+  background: #ffd166;
+  border-color: #fff;
+  transform: scale(1.12);
+}
+.judgment-flash .el-tag {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 700;
+  opacity: 0.9;
+}
+
+#calibrate-screen {
+  position: fixed;
+  z-index: 40;
+}
