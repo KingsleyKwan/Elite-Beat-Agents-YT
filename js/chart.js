@@ -39,6 +39,52 @@
     return Math.max(0, Math.min(1, v));
   }
 
+  const DIFFICULTY_PRESETS = {
+    easy: { density: "sparse", subdivision: 1, label: "易" },
+    normal: { density: "normal", subdivision: 2, label: "正常" },
+    hard: { density: "dense", subdivision: 4, label: "難" },
+  };
+
+  /** Best-effort BPM without YT audio — title parse + duration heuristic. */
+  function guessBpmFromMeta(meta) {
+    meta = meta || {};
+    const title = String(meta.title || "");
+    const m = title.match(/(\d{2,3})\s*[_\-]?\s*bpm\b/i) || title.match(/bpm\s*[_\-:＝=]?\s*(\d{2,3})/i);
+    if (m) {
+      const bpm = Math.max(70, Math.min(200, parseInt(m[1], 10)));
+      return { bpm: bpm, offset: 0, source: "title", label: "自動(標題)" };
+    }
+    const dur = Number(meta.duration) || 0;
+    // Mild heuristic only — not real beat detection
+    let bpm = 120;
+    if (dur > 0 && dur < 45) bpm = 100;
+    else if (dur >= 45 && dur < 150) bpm = 120;
+    else if (dur >= 150) bpm = 128;
+    return { bpm: bpm, offset: 0, source: "heuristic", label: "自動" };
+  }
+
+  async function fetchVideoMeta(videoId) {
+    // oEmbed is metadata-only (title/author) — NEVER fetches media/audio
+    const watch = "https://www.youtube.com/watch?v=" + encodeURIComponent(videoId);
+    const endpoints = [
+      "https://www.youtube.com/oembed?format=json&url=" + encodeURIComponent(watch),
+      "https://noembed.com/embed?url=" + encodeURIComponent(watch),
+    ];
+    for (const url of endpoints) {
+      try {
+        const res = await fetch(url, { mode: "cors" });
+        if (!res.ok) continue;
+        const j = await res.json();
+        if (j && (j.title || j.author_name)) {
+          return { title: j.title || "", author: j.author_name || "", source: "oembed" };
+        }
+      } catch (_) {}
+    }
+    return { title: "", author: "", source: "none" };
+  }
+
+
+
 /**
    * Smarter procedural auto-chart (no YT audio analysis).
    * opts: bpm, offset, durationHint, approachSec, subdivision (1|2|4),
@@ -448,6 +494,7 @@
 
   global.ChartUtil = {
     SCHEMA_VERSION,
+    DIFFICULTY_PRESETS,
     parseVideoId,
     autoGenerateChart,
     clampChartToDuration,
@@ -456,5 +503,7 @@
     buildShareUrl,
     parseShareFromLocation,
     encodeShareHash,
+    guessBpmFromMeta,
+    fetchVideoMeta,
   };
 })(window);
